@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DCM Excel Update</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Barlow+Condensed:wght@600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --green-dark:   #00533D;
+      --green-mid:    #007a50;
+      --green-bright: #44AC34;
+      --green-hover:  #38991f;
+      --green-light:  #e6f4e8;
+      --green-pale:   #f0f7f1;
+      --white:        #ffffff;
+      --text:         #1a2e1a;
+      --text-muted:   #5a7360;
+      --border:       #c8dfc9;
+      --card-shadow:  0 2px 12px rgba(30, 77, 30, 0.10), 0 1px 4px rgba(30, 77, 30, 0.06);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Barlow', sans-serif;
+      background: var(--green-pale);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      color: var(--text);
+    }
+
+    /* ── Site header ── */
+    .site-header {
+      background: var(--green-dark);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      overflow: visible;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+    }
+    .nav-inner {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 32px;
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 32px;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      text-decoration: none;
+      flex-shrink: 0;
+      position: relative;
+      z-index: 101;
+    }
+    .logo img {
+      height: 48px;
+      width: auto;
+      display: block;
+    }
+
+    @media (min-width: 768px) {
+      .logo img {
+        height: 110px;
+        transform: translateY(20px);
+        filter: drop-shadow(0 4px 12px rgba(0,0,0,0.35));
+      }
+    }
+
+    /* ── Page body ── */
+    .page-body {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 48px 24px 64px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* subtle grain + leaf pattern */
+    .page-body::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image:
+        radial-gradient(ellipse 60% 50% at 10% 20%, rgba(67,160,71,0.07) 0%, transparent 70%),
+        radial-gradient(ellipse 50% 60% at 90% 80%, rgba(46,125,50,0.06) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    /* ── Page heading ── */
+    .page-heading {
+      text-align: center;
+      margin-bottom: 36px;
+      position: relative;
+      z-index: 1;
+    }
+    .page-heading h1 {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 2.4rem;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      color: var(--green-dark);
+      line-height: 1.1;
+    }
+    .page-heading p {
+      margin-top: 8px;
+      font-size: 0.95rem;
+      font-weight: 400;
+      color: var(--text-muted);
+    }
+
+    /* ── Card ── */
+    .card {
+      background: var(--white);
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      box-shadow: var(--card-shadow);
+      padding: 36px 40px 40px;
+      width: 100%;
+      max-width: 520px;
+      position: relative;
+      z-index: 1;
+    }
+    /* top green accent bar */
+    .card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--green-mid), var(--green-bright));
+      border-radius: 4px 4px 0 0;
+    }
+
+    /* ── Drop Zone ── */
+    .drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: 4px;
+      padding: 44px 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+      position: relative;
+      background: var(--green-pale);
+    }
+    .drop-zone:hover,
+    .drop-zone.dragover {
+      border-color: var(--green-bright);
+      background: var(--green-light);
+    }
+    .drop-zone input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+      width: 100%;
+      height: 100%;
+    }
+    .drop-zone .icon {
+      width: 52px;
+      height: 52px;
+      margin: 0 auto 14px;
+      background: var(--green-light);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .drop-zone .icon svg { width: 26px; height: 26px; color: var(--green-mid); }
+    .drop-zone .primary-text {
+      font-size: 0.92rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .drop-zone .secondary-text {
+      margin-top: 4px;
+      font-size: 0.80rem;
+      color: var(--text-muted);
+    }
+
+    /* ── File Preview ── */
+    .file-preview {
+      display: none;
+      align-items: center;
+      gap: 12px;
+      background: var(--green-pale);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 13px 15px;
+      margin-top: 14px;
+    }
+    .file-preview.visible { display: flex; }
+    .file-preview .file-icon {
+      width: 38px;
+      height: 38px;
+      background: var(--green-light);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .file-preview .file-icon svg { width: 20px; height: 20px; color: var(--green-mid); }
+    .file-preview .file-info { flex: 1; min-width: 0; }
+    .file-preview .file-name {
+      font-size: 0.855rem;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: var(--text);
+    }
+    .file-preview .file-size {
+      font-size: 0.765rem;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+    .file-preview .clear-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--text-muted);
+      padding: 4px;
+      border-radius: 4px;
+      display: flex;
+      transition: color 0.15s, background 0.15s;
+    }
+    .file-preview .clear-btn:hover { color: #c62828; background: #fdecea; }
+    .file-preview .clear-btn svg { width: 17px; height: 17px; }
+
+    /* ── Button ── */
+    .btn {
+      width: 100%;
+      margin-top: 18px;
+      padding: 13px;
+      font-family: 'Barlow', sans-serif;
+      font-size: 0.9rem;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background 0.15s, opacity 0.15s, transform 0.1s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    .btn-primary {
+      background: var(--green-bright);
+      color: var(--white);
+      text-transform: uppercase;
+    }
+    .btn-primary:hover:not(:disabled) { background: var(--green-hover); }
+    .btn-primary:active:not(:disabled) { transform: scale(0.98); }
+    .btn-primary:disabled { opacity: 0.40; cursor: not-allowed; }
+    .btn-secondary {
+      background: transparent;
+      color: var(--green-mid);
+      border: 1.5px solid var(--border);
+      margin-top: 10px;
+      text-transform: uppercase;
+      font-size: 0.82rem;
+    }
+    .btn-secondary:hover { background: var(--green-pale); border-color: var(--green-bright); }
+
+    /* ── Progress ── */
+    .progress-wrap {
+      display: none;
+      margin-top: 18px;
+    }
+    .progress-wrap.visible { display: block; }
+    .progress-label {
+      font-size: 0.79rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+      display: flex;
+      justify-content: space-between;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .progress-bar-bg {
+      background: var(--green-light);
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      height: 6px;
+      overflow: hidden;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--green-mid), var(--green-bright));
+      border-radius: 2px;
+      transition: width 0.2s ease;
+      width: 0%;
+    }
+    .processing-msg {
+      display: none;
+      margin-top: 16px;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.855rem;
+      color: var(--text-muted);
+    }
+    .processing-msg.visible { display: flex; }
+    .spinner {
+      width: 17px;
+      height: 17px;
+      border: 2px solid var(--border);
+      border-top-color: var(--green-mid);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      flex-shrink: 0;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Status banners ── */
+    .status-banner {
+      display: none;
+      margin-top: 18px;
+      border-radius: 4px;
+      padding: 13px 15px;
+      font-size: 0.855rem;
+      font-weight: 500;
+      align-items: flex-start;
+      gap: 10px;
+    }
+    .status-banner.visible { display: flex; }
+    .status-banner svg { width: 19px; height: 19px; flex-shrink: 0; margin-top: 1px; }
+
+    .status-success {
+      background: var(--green-light);
+      border: 1px solid #a5d6a7;
+      color: var(--green-mid);
+    }
+    .status-error {
+      background: #fdecea;
+      border: 1px solid #ffcdd2;
+      color: #c62828;
+    }
+    .status-error .error-detail {
+      font-size: 0.78rem;
+      font-weight: 400;
+      margin-top: 4px;
+      opacity: 0.8;
+      word-break: break-word;
+    }
+
+    /* ── Footer ── */
+    .site-footer {
+      text-align: center;
+      padding: 20px 24px;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      letter-spacing: 0.02em;
+    }
+    .site-footer span { opacity: 0.6; }
+  </style>
+</head>
+<body>
+
+  <!-- ── Header ── -->
+  <header class="site-header">
+    <div class="nav-inner">
+      <a class="logo" href="#">
+        <img src="DCM.svg" alt="DCM" />
+      </a>
+    </div>
+  </header>
+
+  <!-- ── Page body ── -->
+  <main class="page-body">
+
+    <div class="page-heading">
+      <h1>DCM Excel Update</h1>
+      <p>Upload een .xlsx-bestand om productdata vanuit Akeneo te verrijken</p>
+    </div>
+
+    <div class="card">
+      <!-- Drop zone -->
+      <div class="drop-zone" id="dropZone">
+        <input type="file" id="fileInput" accept=".xlsx,.xlsm" />
+        <div class="icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="12" y1="18" x2="12" y2="12"/>
+            <polyline points="9 15 12 12 15 15"/>
+          </svg>
+        </div>
+        <div class="primary-text">Sleep uw Excel-bestand hierheen</div>
+        <div class="secondary-text">of klik om te bladeren &nbsp;·&nbsp; .xlsx / .xlsm</div>
+      </div>
+
+      <!-- File preview -->
+      <div class="file-preview" id="filePreview">
+        <div class="file-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="16" y1="13" x2="8" y2="13"/>
+            <line x1="16" y1="17" x2="8" y2="17"/>
+            <polyline points="10 9 9 9 8 9"/>
+          </svg>
+        </div>
+        <div class="file-info">
+          <div class="file-name" id="fileName">—</div>
+          <div class="file-size" id="fileSize">—</div>
+        </div>
+        <button class="clear-btn" id="clearBtn" title="Bestand verwijderen">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Upload progress -->
+      <div class="progress-wrap" id="progressWrap">
+        <div class="progress-label">
+          <span>Uploaden</span>
+          <span id="progressPct">0%</span>
+        </div>
+        <div class="progress-bar-bg">
+          <div class="progress-bar-fill" id="progressFill"></div>
+        </div>
+      </div>
+
+      <!-- Processing spinner -->
+      <div class="processing-msg" id="processingMsg">
+        <div class="spinner"></div>
+        <span>Verrijken met Akeneo-data — dit kan even duren…</span>
+      </div>
+
+      <!-- Success banner -->
+      <div class="status-banner status-success" id="successBanner">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+          <polyline points="22 4 12 14.01 9 11.01"/>
+        </svg>
+        <span>Verrijking voltooid — uw download start automatisch.</span>
+      </div>
+
+      <!-- Error banner -->
+      <div class="status-banner status-error" id="errorBanner">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="12" y1="8" x2="12" y2="12"/>
+          <line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>
+        <div>
+          <div>Verrijking mislukt. Controleer uw bestand en probeer het opnieuw.</div>
+          <div class="error-detail" id="errorDetail"></div>
+        </div>
+      </div>
+
+      <!-- Primary action -->
+      <button class="btn btn-primary" id="enrichBtn" disabled>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="23 4 23 10 17 10"/>
+          <polyline points="1 20 1 14 7 14"/>
+          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+        </svg>
+        Bestand bijwerken
+      </button>
+
+      <!-- Reset (shown after result) -->
+      <button class="btn btn-secondary" id="resetBtn" style="display:none;">
+        Nog een bestand bijwerken
+      </button>
+    </div>
+
+  </main>
+
+
+  <script>
+    const dropZone    = document.getElementById('dropZone');
+    const fileInput   = document.getElementById('fileInput');
+    const filePreview = document.getElementById('filePreview');
+    const fileName    = document.getElementById('fileName');
+    const fileSize    = document.getElementById('fileSize');
+    const clearBtn    = document.getElementById('clearBtn');
+    const enrichBtn   = document.getElementById('enrichBtn');
+    const resetBtn    = document.getElementById('resetBtn');
+    const progressWrap  = document.getElementById('progressWrap');
+    const progressFill  = document.getElementById('progressFill');
+    const progressPct   = document.getElementById('progressPct');
+    const processingMsg = document.getElementById('processingMsg');
+    const successBanner = document.getElementById('successBanner');
+    const errorBanner   = document.getElementById('errorBanner');
+    const errorDetail   = document.getElementById('errorDetail');
+
+    let selectedFile = null;
+
+    function formatBytes(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+
+    function setFile(file) {
+      if (!file || !/\.xlsx?m?$/i.test(file.name)) {
+        showError('Alleen .xlsx- en .xlsm-bestanden worden ondersteund.');
+        return;
+      }
+      selectedFile = file;
+      fileName.textContent = file.name;
+      fileSize.textContent = formatBytes(file.size);
+      filePreview.classList.add('visible');
+      enrichBtn.disabled = false;
+      hideStatus();
+    }
+
+    function clearFile() {
+      selectedFile = null;
+      fileInput.value = '';
+      filePreview.classList.remove('visible');
+      enrichBtn.disabled = true;
+      hideStatus();
+    }
+
+    function hideStatus() {
+      progressWrap.classList.remove('visible');
+      processingMsg.classList.remove('visible');
+      successBanner.classList.remove('visible');
+      errorBanner.classList.remove('visible');
+      resetBtn.style.display = 'none';
+      enrichBtn.style.display = '';
+    }
+
+    function showError(msg) {
+      errorDetail.textContent = msg || '';
+      errorBanner.classList.add('visible');
+      processingMsg.classList.remove('visible');
+      progressWrap.classList.remove('visible');
+      enrichBtn.disabled = false;
+      enrichBtn.style.display = '';
+      resetBtn.style.display = 'none';
+    }
+
+    function setUploading(pct) {
+      progressWrap.classList.add('visible');
+      progressFill.style.width = pct + '%';
+      progressPct.textContent = Math.round(pct) + '%';
+    }
+
+    function setProcessing() {
+      progressWrap.classList.remove('visible');
+      processingMsg.classList.add('visible');
+    }
+
+    // ── Events ──────────────────────────────────────────────────────
+
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files[0]) setFile(fileInput.files[0]);
+    });
+
+    clearBtn.addEventListener('click', clearFile);
+
+    dropZone.addEventListener('dragover', e => {
+      e.preventDefault();
+      dropZone.classList.add('dragover');
+    });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop', e => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      const file = e.dataTransfer.files[0];
+      if (file) setFile(file);
+    });
+
+    resetBtn.addEventListener('click', () => {
+      clearFile();
+      hideStatus();
+    });
+
+    // ── Upload ───────────────────────────────────────────────────────
+
+    enrichBtn.addEventListener('click', () => {
+      if (!selectedFile) return;
+
+      hideStatus();
+      enrichBtn.disabled = true;
+      enrichBtn.style.display = 'none';
+
+      const formData = new FormData();
+      formData.append('data', selectedFile, selectedFile.name);
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/webhook/excel-enrichment');
+      xhr.responseType = 'arraybuffer';
+
+      xhr.upload.addEventListener('progress', e => {
+        if (e.lengthComputable) {
+          const pct = (e.loaded / e.total) * 100;
+          setUploading(pct);
+          if (pct >= 100) setProcessing();
+        }
+      });
+
+      xhr.upload.addEventListener('load', () => setProcessing());
+
+      xhr.addEventListener('load', () => {
+        processingMsg.classList.remove('visible');
+
+        if (xhr.status === 200) {
+          // Extract filename from Content-Disposition header
+          const disposition = xhr.getResponseHeader('Content-Disposition') || '';
+          const match = disposition.match(/filename\*?=(?:UTF-8'')?["']?([^;"'\n]+)["']?/i);
+          const outName = match ? decodeURIComponent(match[1]) : (selectedFile.name.replace(/\.xlsm?$/i, '_enriched.xlsx'));
+
+          const blob = new Blob([xhr.response], {
+            type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = outName;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(url), 10000);
+
+          successBanner.classList.add('visible');
+          resetBtn.style.display = '';
+        } else {
+          let detail = 'HTTP ' + xhr.status;
+          try {
+            const text = new TextDecoder().decode(new Uint8Array(xhr.response));
+            const parsed = JSON.parse(text);
+            detail = parsed.message || parsed.error || text.substring(0, 200);
+          } catch {}
+          showError(detail);
+          enrichBtn.disabled = false;
+          enrichBtn.style.display = '';
+        }
+      });
+
+      xhr.addEventListener('error', () => {
+        showError('Netwerkfout — is n8n actief?');
+        enrichBtn.disabled = false;
+        enrichBtn.style.display = '';
+      });
+
+      xhr.addEventListener('timeout', () => {
+        showError('Verzoek verlopen.');
+        enrichBtn.disabled = false;
+        enrichBtn.style.display = '';
+      });
+
+      xhr.timeout = 300000; // 5 min
+      xhr.send(formData);
+    });
+  </script>
+</body>
+</html>
