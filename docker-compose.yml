@@ -1,6 +1,6 @@
 services:
   n8n:
-    image: docker.n8n.io/n8nio/n8n
+    image: docker.n8n.io/n8nio/n8n:2.37.10  # pinned: Code-node sandbox rules change between n8n releases
     container_name: n8n
     restart: unless-stopped
     ports:
@@ -8,8 +8,8 @@ services:
     environment:
       - N8N_USER_FOLDER=/home/node/.n8n
       - N8N_USER_MANAGEMENT_JWT_SECRET=${N8N_JWT_SECRET}
-      - NODE_FUNCTION_ALLOW_EXTERNAL=exceljs
-      - NODE_FUNCTION_ALLOW_BUILTIN=https,http,url
+      - NODE_FUNCTION_ALLOW_EXTERNAL=exceljs,pg
+      - NODE_FUNCTION_ALLOW_BUILTIN=https,http,url,crypto
       - N8N_DEFAULT_BINARY_DATA_MODE=default
       - N8N_BINARY_DATA_MODE=default
       - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
@@ -19,10 +19,26 @@ services:
       - AKENEO_USERNAME=${AKENEO_USERNAME}
       - AKENEO_PASSWORD=${AKENEO_PASSWORD}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - MAPPINGS_DB_URL=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
     volumes:
       - n8n_data:/home/node/.n8n
     user: root
-    entrypoint: /bin/sh -c "npm install -g exceljs && n8n start"
+    entrypoint: /bin/sh -c "npm install -g exceljs pg && n8n start"
+    depends_on:
+      - postgres
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: dcm-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    ports:
+      - "127.0.0.1:5432:5432"   # localhost only, for the CLI
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
 
   portal:
     image: nginx:alpine
@@ -38,3 +54,4 @@ services:
 
 volumes:
   n8n_data:
+  postgres_data:
