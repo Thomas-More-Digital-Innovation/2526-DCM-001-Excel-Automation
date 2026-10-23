@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="nl">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>DCM Excel Update</title>
+  <title>DCM Excel verrijken</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Barlow+Condensed:wght@600;700&display=swap" rel="stylesheet">
@@ -87,17 +87,6 @@
       overflow: hidden;
     }
 
-    /* subtle grain + leaf pattern */
-    .page-body::before {
-      content: '';
-      position: absolute;
-      inset: 0;
-      background-image:
-        radial-gradient(ellipse 60% 50% at 10% 20%, rgba(67,160,71,0.07) 0%, transparent 70%),
-        radial-gradient(ellipse 50% 60% at 90% 80%, rgba(46,125,50,0.06) 0%, transparent 70%);
-      pointer-events: none;
-    }
-
     /* ── Page heading ── */
     .page-heading {
       text-align: center;
@@ -138,7 +127,7 @@
       position: absolute;
       top: 0; left: 0; right: 0;
       height: 3px;
-      background: linear-gradient(90deg, var(--green-mid), var(--green-bright));
+      background: var(--green-bright);
       border-radius: 4px 4px 0 0;
     }
 
@@ -248,7 +237,6 @@
       font-family: 'Barlow', sans-serif;
       font-size: 0.9rem;
       font-weight: 600;
-      letter-spacing: 0.03em;
       border: none;
       border-radius: 4px;
       cursor: pointer;
@@ -261,7 +249,6 @@
     .btn-primary {
       background: var(--green-bright);
       color: var(--white);
-      text-transform: uppercase;
     }
     .btn-primary:hover:not(:disabled) { background: var(--green-hover); }
     .btn-primary:active:not(:disabled) { transform: scale(0.98); }
@@ -271,8 +258,7 @@
       color: var(--green-mid);
       border: 1.5px solid var(--border);
       margin-top: 10px;
-      text-transform: uppercase;
-      font-size: 0.82rem;
+      font-size: 0.88rem;
     }
     .btn-secondary:hover { background: var(--green-pale); border-color: var(--green-bright); }
 
@@ -289,8 +275,6 @@
       margin-bottom: 8px;
       display: flex;
       justify-content: space-between;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
     }
     .progress-bar-bg {
       background: var(--green-light);
@@ -301,7 +285,7 @@
     }
     .progress-bar-fill {
       height: 100%;
-      background: linear-gradient(90deg, var(--green-mid), var(--green-bright));
+      background: var(--green-bright);
       border-radius: 2px;
       transition: width 0.2s ease;
       width: 0%;
@@ -358,15 +342,75 @@
       word-break: break-word;
     }
 
-    /* ── Footer ── */
-    .site-footer {
-      text-align: center;
-      padding: 20px 24px;
-      font-size: 0.75rem;
-      color: var(--text-muted);
-      letter-spacing: 0.02em;
+    /* ── Column mapping ── */
+    .card.wide { max-width: 1100px; transition: max-width 0.2s; }
+    .mapping { display: none; margin-top: 22px; }
+    .mapping.visible { display: block; }
+    .mapping-info {
+      font-size: 0.855rem;
+      padding: 11px 14px;
+      border-radius: 4px;
+      background: var(--green-light);
+      border: 1px solid var(--border);
+      color: var(--green-dark);
     }
-    .site-footer span { opacity: 0.6; }
+    .mapping-info.new { background: #fff8e1; border-color: #ffe082; color: #7a5a00; }
+    .mapping-tools {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 18px;
+      align-items: center;
+      margin: 14px 0 10px;
+      font-size: 0.82rem;
+      color: var(--text-muted);
+    }
+    .mapping-tools label { display: flex; align-items: center; gap: 6px; }
+    .mapping input[type="text"], .mapping input[type="search"], .mapping select {
+      font-family: inherit;
+      font-size: 0.82rem;
+      padding: 6px 8px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--white);
+      color: var(--text);
+      min-width: 0;
+    }
+    .mapping input:focus, .mapping select:focus { outline: 2px solid var(--green-bright); outline-offset: -1px; }
+    .mapping select.invalid { border-color: #c62828; background: #fdecea; }
+    .mapping-table-wrap {
+      max-height: 60vh;
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+    }
+    .mapping table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    .mapping th {
+      position: sticky;
+      top: 0;
+      background: var(--green-pale);
+      text-align: left;
+      font-weight: 600;
+      color: var(--text-muted);
+      font-size: 0.78rem;
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border);
+      z-index: 1;
+    }
+    .mapping td { padding: 6px 10px; border-bottom: 1px solid var(--green-light); vertical-align: middle; }
+    .mapping tr.unmapped td.col-header { color: var(--text-muted); }
+    .mapping tr.sku-row { background: var(--green-pale); }
+    .mapping td.col-letter { color: var(--text-muted); font-variant-numeric: tabular-nums; width: 44px; }
+    .mapping td.col-header { font-weight: 600; white-space: nowrap; }
+    .mapping td.col-meta { color: var(--text-muted); max-width: 260px; }
+    .mapping td.col-meta div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mapping td.col-source select { width: 100%; min-width: 240px; max-width: 380px; }
+    .mapping td.col-yesno { text-align: center; }
+
+    .mapping-empty { padding: 18px; text-align: center; font-size: 0.85rem; color: var(--text-muted); }
+
+    /* ── Keyboard focus ── */
+    .btn:focus-visible, .clear-btn:focus-visible { outline: 2px solid var(--green-dark); outline-offset: 2px; }
+    .drop-zone:focus-within { border-color: var(--green-bright); background: var(--green-light); outline: 2px solid var(--green-dark); outline-offset: 2px; }
   </style>
 </head>
 <body>
@@ -384,8 +428,8 @@
   <main class="page-body">
 
     <div class="page-heading">
-      <h1>DCM Excel Update</h1>
-      <p>Upload een .xlsx-bestand om productdata vanuit Akeneo te verrijken</p>
+      <h1>DCM Excel verrijken</h1>
+      <p>Upload een Excel-bestand en vul het aan met productdata uit Akeneo.</p>
     </div>
 
     <div class="card">
@@ -401,7 +445,7 @@
           </svg>
         </div>
         <div class="primary-text">Sleep uw Excel-bestand hierheen</div>
-        <div class="secondary-text">of klik om te bladeren &nbsp;·&nbsp; .xlsx / .xlsm</div>
+        <div class="secondary-text">of klik om te bladeren (.xlsx of .xlsm)</div>
       </div>
 
       <!-- File preview -->
@@ -419,11 +463,41 @@
           <div class="file-name" id="fileName">—</div>
           <div class="file-size" id="fileSize">—</div>
         </div>
-        <button class="clear-btn" id="clearBtn" title="Bestand verwijderen">
+        <button class="clear-btn" id="clearBtn" title="Bestand verwijderen" aria-label="Bestand verwijderen">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <line x1="18" y1="6" x2="6" y2="18"/>
             <line x1="6" y1="6" x2="18" y2="18"/>
           </svg>
+        </button>
+      </div>
+
+      <!-- Column mapping (filled after analysis) -->
+      <div class="mapping" id="mapping">
+        <div class="mapping-info" id="mappingInfo"></div>
+        <div class="mapping-tools">
+          <label>Kolom met artikelnummer
+            <select id="skuSelect"></select>
+          </label>
+          <label>
+            <input type="search" id="mappingFilter" placeholder="Zoek kolom…" aria-label="Zoek kolom" />
+          </label>
+          <label><input type="checkbox" id="onlyMapped" /> Alleen gekoppelde kolommen</label>
+          <span id="mappingCount"></span>
+        </div>
+        <div class="mapping-table-wrap">
+          <table>
+            <thead>
+              <tr><th>Letter</th><th>Kolomnaam</th><th>Hint en huidige waarde</th><th>Akeneo-bron</th><th>Taal</th><th title="Schrijf Y als de waarde in Akeneo ja/true is, anders N">Ja/nee</th></tr>
+            </thead>
+            <tbody id="mappingBody"></tbody>
+          </table>
+        </div>
+        <p class="mapping-empty" id="mappingEmpty" hidden>Geen kolommen gevonden. Pas de zoekterm aan of zet de filter uit.</p>
+        <button class="btn btn-primary" id="saveBtn">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="20 6 9 17 4 12"/>
+          </svg>
+          Koppeling opslaan en bestand verrijken
         </button>
       </div>
 
@@ -439,29 +513,29 @@
       </div>
 
       <!-- Processing spinner -->
-      <div class="processing-msg" id="processingMsg">
+      <div class="processing-msg" id="processingMsg" role="status">
         <div class="spinner"></div>
-        <span>Verrijken met Akeneo-data — dit kan even duren…</span>
+        <span id="processingText">Bezig met verrijken. Dit kan even duren…</span>
       </div>
 
       <!-- Success banner -->
-      <div class="status-banner status-success" id="successBanner">
+      <div class="status-banner status-success" id="successBanner" role="status">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
           <polyline points="22 4 12 14.01 9 11.01"/>
         </svg>
-        <span>Verrijking voltooid — uw download start automatisch.</span>
+        <span>Klaar. Het verrijkte bestand wordt gedownload.</span>
       </div>
 
       <!-- Error banner -->
-      <div class="status-banner status-error" id="errorBanner">
+      <div class="status-banner status-error" id="errorBanner" role="alert">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="10"/>
           <line x1="12" y1="8" x2="12" y2="12"/>
           <line x1="12" y1="16" x2="12.01" y2="16"/>
         </svg>
         <div>
-          <div>Verrijking mislukt. Controleer uw bestand en probeer het opnieuw.</div>
+          <div id="errorTitle">Verrijken mislukt. Controleer het bestand en probeer het opnieuw.</div>
           <div class="error-detail" id="errorDetail"></div>
         </div>
       </div>
@@ -473,12 +547,12 @@
           <polyline points="1 20 1 14 7 14"/>
           <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
         </svg>
-        Bestand bijwerken
+        Kolommen controleren
       </button>
 
       <!-- Reset (shown after result) -->
       <button class="btn btn-secondary" id="resetBtn" style="display:none;">
-        Nog een bestand bijwerken
+        Nog een bestand verrijken
       </button>
     </div>
 
@@ -486,28 +560,50 @@
 
 
   <script>
-    const dropZone    = document.getElementById('dropZone');
-    const fileInput   = document.getElementById('fileInput');
-    const filePreview = document.getElementById('filePreview');
-    const fileName    = document.getElementById('fileName');
-    const fileSize    = document.getElementById('fileSize');
-    const clearBtn    = document.getElementById('clearBtn');
-    const enrichBtn   = document.getElementById('enrichBtn');
-    const resetBtn    = document.getElementById('resetBtn');
-    const progressWrap  = document.getElementById('progressWrap');
-    const progressFill  = document.getElementById('progressFill');
-    const progressPct   = document.getElementById('progressPct');
-    const processingMsg = document.getElementById('processingMsg');
-    const successBanner = document.getElementById('successBanner');
-    const errorBanner   = document.getElementById('errorBanner');
-    const errorDetail   = document.getElementById('errorDetail');
+    const $ = id => document.getElementById(id);
+    const card          = document.querySelector('.card');
+    const dropZone      = $('dropZone');
+    const fileInput     = $('fileInput');
+    const filePreview   = $('filePreview');
+    const fileName      = $('fileName');
+    const fileSize      = $('fileSize');
+    const clearBtn      = $('clearBtn');
+    const enrichBtn     = $('enrichBtn');
+    const saveBtn       = $('saveBtn');
+    const resetBtn      = $('resetBtn');
+    const progressWrap  = $('progressWrap');
+    const progressFill  = $('progressFill');
+    const progressPct   = $('progressPct');
+    const processingMsg = $('processingMsg');
+    const processingText = $('processingText');
+    const successBanner = $('successBanner');
+    const errorBanner   = $('errorBanner');
+    const errorTitle    = $('errorTitle');
+    const errorDetail   = $('errorDetail');
+    const mappingEl     = $('mapping');
+    const mappingInfo   = $('mappingInfo');
+    const mappingBody   = $('mappingBody');
+    const mappingCount  = $('mappingCount');
+    const mappingFilter = $('mappingFilter');
+    const onlyMapped    = $('onlyMapped');
+    const skuSelect     = $('skuSelect');
+    const mappingEmpty  = $('mappingEmpty');
 
     let selectedFile = null;
+    let analysis = null;            // response of /webhook/excel-analyze
+    let sourceOptionsHtml = '';     // <option>s shared by every Akeneo-bron dropdown
+    let attrByCode = new Map();
 
     function formatBytes(bytes) {
       if (bytes < 1024) return bytes + ' B';
       if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
       return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+
+    function colLetter(n) {
+      let s = '';
+      for (; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + (n - 1) % 26) + s;
+      return s;
     }
 
     function setFile(file) {
@@ -520,6 +616,7 @@
       fileSize.textContent = formatBytes(file.size);
       filePreview.classList.add('visible');
       enrichBtn.disabled = false;
+      hideMapping();
       hideStatus();
     }
 
@@ -528,7 +625,14 @@
       fileInput.value = '';
       filePreview.classList.remove('visible');
       enrichBtn.disabled = true;
+      hideMapping();
       hideStatus();
+    }
+
+    function hideMapping() {
+      analysis = null;
+      mappingEl.classList.remove('visible');
+      card.classList.remove('wide');
     }
 
     function hideStatus() {
@@ -537,16 +641,19 @@
       successBanner.classList.remove('visible');
       errorBanner.classList.remove('visible');
       resetBtn.style.display = 'none';
-      enrichBtn.style.display = '';
+      enrichBtn.style.display = analysis ? 'none' : '';
+      saveBtn.disabled = false;
     }
 
-    function showError(msg) {
+    function showError(msg, title) {
+      errorTitle.textContent = title || 'Verrijken mislukt. Controleer het bestand en probeer het opnieuw.';
       errorDetail.textContent = msg || '';
       errorBanner.classList.add('visible');
       processingMsg.classList.remove('visible');
       progressWrap.classList.remove('visible');
-      enrichBtn.disabled = false;
-      enrichBtn.style.display = '';
+      enrichBtn.disabled = !selectedFile;
+      enrichBtn.style.display = analysis ? 'none' : '';
+      saveBtn.disabled = false;
       resetBtn.style.display = 'none';
     }
 
@@ -556,10 +663,182 @@
       progressPct.textContent = Math.round(pct) + '%';
     }
 
-    function setProcessing() {
+    function setProcessing(text) {
       progressWrap.classList.remove('visible');
+      processingText.textContent = text;
       processingMsg.classList.add('visible');
     }
+
+    // POSTs the file (+ extra fields) and calls onOk(xhr) on HTTP 200.
+    function upload(url, fields, responseType, busyText, errorTitleText, onOk) {
+      const formData = new FormData();
+      formData.append('data', selectedFile, selectedFile.name);
+      for (const [k, v] of Object.entries(fields)) formData.append(k, v);
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', url);
+      xhr.responseType = responseType;
+      xhr.timeout = 300000; // 5 min
+      xhr.upload.addEventListener('progress', e => {
+        if (e.lengthComputable) setUploading((e.loaded / e.total) * 100);
+      });
+      xhr.upload.addEventListener('load', () => setProcessing(busyText));
+      xhr.addEventListener('load', () => {
+        processingMsg.classList.remove('visible');
+        if (xhr.status === 200) return onOk(xhr);
+        let detail = 'HTTP ' + xhr.status;
+        try {
+          const text = responseType === 'arraybuffer' ? new TextDecoder().decode(new Uint8Array(xhr.response)) : JSON.stringify(xhr.response);
+          const parsed = JSON.parse(text);
+          detail = parsed.message || parsed.error || text.substring(0, 200);
+        } catch {}
+        showError(detail, errorTitleText);
+      });
+      xhr.addEventListener('error', () => showError('Geen verbinding met de server. Controleer of n8n actief is.', errorTitleText));
+      xhr.addEventListener('timeout', () => showError('Verzoek verlopen.', errorTitleText));
+      xhr.send(formData);
+    }
+
+    // ── Mapping screen ──────────────────────────────────────────────
+
+    const esc = s => String(s).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch]);
+
+    // Dropdown value for a mapping entry: '' = niet invullen, 'attr:<code>' or 'calc:<code>'.
+    const entryKey = entry => !entry ? '' : entry.calc ? 'calc:' + entry.calc : 'attr:' + entry.attr;
+    const keyToEntry = key => {
+      const i = key.indexOf(':');
+      return i < 0 ? null : { [key.slice(0, i)]: key.slice(i + 1) };
+    };
+
+    function renderMapping(data) {
+      analysis = data;
+      const { attributes, calcFields, locales } = data.options;
+
+      attrByCode = new Map(attributes.map(a => [a.code, a]));
+      sourceOptionsHtml =
+        '<option value="">Niet invullen</option>' +
+        '<optgroup label="Berekend (verpakking, herkomst)">' +
+        calcFields.map(f => '<option value="calc:' + esc(f.code) + '">' + esc(f.label) + '</option>').join('') +
+        '</optgroup><optgroup label="Akeneo-attributen">' +
+        attributes.slice().sort((a, b) => a.label.localeCompare(b.label))
+          .map(a => '<option value="attr:' + esc(a.code) + '">' + esc(a.label) + ' (' + esc(a.code) + ')</option>').join('') +
+        '</optgroup>';
+
+      mappingInfo.className = 'mapping-info' + (data.saved ? '' : ' new');
+      mappingInfo.textContent = data.saved
+        ? 'Opgeslagen koppeling gevonden (laatst gewijzigd ' + new Date(data.savedAt).toLocaleString('nl-BE') + '). ' + data.rowCount + ' artikelregels in het bestand.'
+        : 'Nieuwe template. Dit is een voorgestelde koppeling: controleer ze voordat u opslaat. Ze worden onthouden voor volgende keren. ' + data.rowCount + ' artikelregels in het bestand.';
+
+      skuSelect.replaceChildren(...data.columns.map(c => {
+        const o = document.createElement('option');
+        o.value = c.colNum;
+        o.textContent = colLetter(c.colNum) + ': ' + c.header;
+        o.selected = c.colNum === data.skuCol;
+        return o;
+      }));
+
+      const localeOptions = ['<option value="">auto</option>'].concat(locales.map(l => '<option>' + esc(l) + '</option>')).join('');
+      mappingBody.replaceChildren(...data.columns.map(c => {
+        const entry = data.mapping[c.colNum];
+        const tr = document.createElement('tr');
+        tr.dataset.col = c.colNum;
+        tr.dataset.search = (colLetter(c.colNum) + ' ' + c.header + ' ' + (c.hint || '')).toLowerCase();
+        tr.innerHTML =
+          '<td class="col-letter"></td><td class="col-header"></td><td class="col-meta"><div class="hint"></div><div class="example"></div></td>' +
+          '<td class="col-source"><select class="source">' + sourceOptionsHtml + '</select></td>' +
+          '<td><select class="locale">' + localeOptions + '</select></td>' +
+          '<td class="col-yesno"><input type="checkbox"></td>';
+        tr.querySelector('.col-letter').textContent = colLetter(c.colNum);
+        tr.querySelector('.col-header').textContent = c.header;
+        tr.querySelector('.hint').textContent = c.hint ? c.hint.replace(/\n/g, ' | ') : '';
+        tr.querySelector('.hint').title = c.hint || '';
+        const example = data.samples && data.samples[c.colNum];
+        tr.querySelector('.example').textContent = example ? 'Nu: ' + example : '';
+        const source = tr.querySelector('select.source');
+        const locale = tr.querySelector('select.locale');
+        const yesno = tr.querySelector('input[type=checkbox]');
+        source.setAttribute('aria-label', 'Akeneo-bron voor ' + c.header);
+        locale.setAttribute('aria-label', 'Taal voor ' + c.header);
+        yesno.setAttribute('aria-label', 'Als J/N schrijven voor ' + c.header);
+        const key = entryKey(entry);
+        if (key && ![...source.options].some(o => o.value === key)) {
+          // Saved code that no longer exists in Akeneo: keep it visible so it can be fixed.
+          const o = document.createElement('option');
+          o.value = key;
+          o.textContent = 'Onbekend in Akeneo: ' + key.slice(key.indexOf(':') + 1);
+          o.dataset.invalid = '1';
+          source.prepend(o);
+        }
+        source.value = key;
+        locale.value = (entry && entry.locale) || '';
+        yesno.checked = !!(entry && entry.yesno);
+        source.addEventListener('change', () => updateRow(tr));
+        updateRow(tr);
+        return tr;
+      }));
+
+      skuSelect.onchange = () => { analysis.skuCol = Number(skuSelect.value); [...mappingBody.rows].forEach(updateRow); };
+      mappingEl.classList.add('visible');
+      card.classList.add('wide');
+      enrichBtn.style.display = 'none';
+      updateCount();
+      applyFilter();
+    }
+
+    // Enables the locale / J/N controls that make sense for the chosen source.
+    function updateRow(tr) {
+      const source = tr.querySelector('select.source');
+      const locale = tr.querySelector('select.locale');
+      const yesno = tr.querySelector('input[type=checkbox]');
+      const isSku = Number(tr.dataset.col) === analysis.skuCol;
+      if (isSku) source.value = '';
+      source.disabled = isSku;
+      source.title = isSku ? 'Artikelnummer: wordt niet overschreven' : '';
+      const selected = source.selectedOptions[0];
+      const invalid = !!(selected && selected.dataset.invalid);
+      const entry = invalid ? null : keyToEntry(source.value);
+      const attr = entry && entry.attr && attrByCode.get(entry.attr);
+      source.classList.toggle('invalid', invalid);
+      locale.disabled = !(attr && attr.localizable);
+      yesno.disabled = !attr;
+      tr.classList.toggle('sku-row', isSku);
+      tr.classList.toggle('unmapped', !entry);
+      updateCount();
+    }
+
+    function readMapping() {
+      const mapping = {};
+      let invalid = 0;
+      for (const tr of mappingBody.rows) {
+        const source = tr.querySelector('select.source');
+        const selected = source.selectedOptions[0];
+        const isInvalid = !!(selected && selected.dataset.invalid);
+        if (isInvalid) invalid++;
+        const entry = isInvalid ? null : keyToEntry(source.value);
+        if (!entry) { mapping[tr.dataset.col] = null; continue; }
+        const locale = tr.querySelector('select.locale');
+        if (entry.attr && !locale.disabled && locale.value) entry.locale = locale.value;
+        if (entry.attr && tr.querySelector('input[type=checkbox]').checked) entry.yesno = true;
+        mapping[tr.dataset.col] = entry;
+      }
+      return { mapping, invalid };
+    }
+
+    function updateCount() {
+      const rows = [...mappingBody.rows];
+      mappingCount.textContent = rows.filter(r => !r.classList.contains('unmapped')).length + ' van ' + rows.length + ' kolommen gekoppeld';
+    }
+
+    function applyFilter() {
+      const q = mappingFilter.value.trim().toLowerCase();
+      for (const tr of mappingBody.rows) {
+        const hide = (q && !tr.dataset.search.includes(q)) || (onlyMapped.checked && tr.classList.contains('unmapped'));
+        tr.style.display = hide ? 'none' : '';
+      }
+      mappingEmpty.hidden = [...mappingBody.rows].some(tr => tr.style.display !== 'none');
+    }
+    mappingFilter.addEventListener('input', applyFilter);
+    onlyMapped.addEventListener('change', applyFilter);
 
     // ── Events ──────────────────────────────────────────────────────
 
@@ -569,6 +848,7 @@
 
     clearBtn.addEventListener('click', clearFile);
 
+    for (const ev of ['dragover', 'drop']) window.addEventListener(ev, e => e.preventDefault());
     dropZone.addEventListener('dragover', e => {
       e.preventDefault();
       dropZone.classList.add('dragover');
@@ -581,87 +861,48 @@
       if (file) setFile(file);
     });
 
-    resetBtn.addEventListener('click', () => {
-      clearFile();
-      hideStatus();
-    });
+    resetBtn.addEventListener('click', clearFile);
 
-    // ── Upload ───────────────────────────────────────────────────────
-
+    // Step 1: read the template's columns and the saved (or suggested) mapping.
     enrichBtn.addEventListener('click', () => {
       if (!selectedFile) return;
-
       hideStatus();
       enrichBtn.disabled = true;
-      enrichBtn.style.display = 'none';
-
-      const formData = new FormData();
-      formData.append('data', selectedFile, selectedFile.name);
-
-      const xhr = new XMLHttpRequest();
-      xhr.open('POST', '/webhook/excel-enrichment');
-      xhr.responseType = 'arraybuffer';
-
-      xhr.upload.addEventListener('progress', e => {
-        if (e.lengthComputable) {
-          const pct = (e.loaded / e.total) * 100;
-          setUploading(pct);
-          if (pct >= 100) setProcessing();
-        }
+      upload('/webhook/excel-analyze', {}, 'json', 'Kolommen worden gelezen…', 'Kolommen lezen mislukt.', xhr => {
+        if (!xhr.response || !xhr.response.columns) return showError('Onverwacht antwoord van de server.', 'Kolommen lezen mislukt.');
+        renderMapping(xhr.response);
       });
+    });
 
-      xhr.upload.addEventListener('load', () => setProcessing());
+    // Step 2: save the mapping and enrich the file with it.
+    saveBtn.addEventListener('click', () => {
+      if (!selectedFile || !analysis) return;
+      const { mapping, invalid } = readMapping();
+      if (invalid) return showError(invalid + ' kolom(men) hebben een bron die niet meer in Akeneo bestaat (rood gemarkeerd). Kies een andere bron of "niet invullen".', 'Koppeling niet geldig.');
+      hideStatus();
+      saveBtn.disabled = true;
+      const choice = JSON.stringify({ skuCol: analysis.skuCol, mapping });
+      upload('/webhook/excel-enrichment', { mapping: choice }, 'arraybuffer', 'Bezig met verrijken. Dit kan even duren…', null, xhr => {
+        const disposition = xhr.getResponseHeader('Content-Disposition') || '';
+        const match = disposition.match(/filename\*?=(?:UTF-8'')?["']?([^;"'\n]+)["']?/i);
+        const outName = match ? decodeURIComponent(match[1]) : selectedFile.name.replace(/\.xlsm?$/i, '_enriched.xlsx');
+        const blob = new Blob([xhr.response], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = outName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
 
-      xhr.addEventListener('load', () => {
-        processingMsg.classList.remove('visible');
-
-        if (xhr.status === 200) {
-          // Extract filename from Content-Disposition header
-          const disposition = xhr.getResponseHeader('Content-Disposition') || '';
-          const match = disposition.match(/filename\*?=(?:UTF-8'')?["']?([^;"'\n]+)["']?/i);
-          const outName = match ? decodeURIComponent(match[1]) : (selectedFile.name.replace(/\.xlsm?$/i, '_enriched.xlsx'));
-
-          const blob = new Blob([xhr.response], {
-            type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-          });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = outName;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          setTimeout(() => URL.revokeObjectURL(url), 10000);
-
-          successBanner.classList.add('visible');
-          resetBtn.style.display = '';
-        } else {
-          let detail = 'HTTP ' + xhr.status;
-          try {
-            const text = new TextDecoder().decode(new Uint8Array(xhr.response));
-            const parsed = JSON.parse(text);
-            detail = parsed.message || parsed.error || text.substring(0, 200);
-          } catch {}
-          showError(detail);
-          enrichBtn.disabled = false;
-          enrichBtn.style.display = '';
-        }
+        analysis.saved = true;
+        mappingInfo.className = 'mapping-info';
+        mappingInfo.textContent = 'Koppeling opgeslagen. Ze wordt automatisch geladen voor deze template.';
+        saveBtn.disabled = false;
+        successBanner.classList.add('visible');
+        resetBtn.style.display = '';
       });
-
-      xhr.addEventListener('error', () => {
-        showError('Netwerkfout — is n8n actief?');
-        enrichBtn.disabled = false;
-        enrichBtn.style.display = '';
-      });
-
-      xhr.addEventListener('timeout', () => {
-        showError('Verzoek verlopen.');
-        enrichBtn.disabled = false;
-        enrichBtn.style.display = '';
-      });
-
-      xhr.timeout = 300000; // 5 min
-      xhr.send(formData);
     });
   </script>
 </body>

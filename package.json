@@ -1,5 +1,11 @@
 {
   "dependencies": {
-    "exceljs": "^4.4.0"
+    "exceljs": "^4.4.0",
+    "pg": "^8.23.1"
+  },
+  "scripts": {
+    "build": "node scripts/build-workflow.js",
+    "test": "node --test",
+    "enrich": "node --env-file=.env scripts/enrich.js"
   }
 }
