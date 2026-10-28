@@ -322,7 +322,9 @@ async function suggestMapping(env, headerCols, skuCol, attributes, locales) {
     '- {"attr": "<attribute code>", "yesno": true} — for Y/N flag columns (e.g. recycling fee / packaging-tax flags), mapped to the matching boolean or flag attribute.\n' +
     '- {"calc": "<code>"} — one of calc_fields, for packing-unit columns (base unit, units per box/carton/pallet, EAN per packing level, minimum order quantity) and country of origin.\n' +
     '- null — when nothing fits, and ALWAYS for: prices of any kind, date columns (valid-from, ddmmjjjj, datum), and identifiers the customer assigns themselves (their own internal article number).\n' +
-    '"hint" (when present) describes expected values or format. Code lists like "PC = PIECE | INB = BOX" mean a select/text attribute, never a metric. Only use codes from the lists — never invent one.\n' +
+    '"hint" (when present) is the template\'s own description rows (often the same text in several languages); it describes expected values or format. ' +
+    'The column "name" is usually a SAP field code (e.g. MATNR, EAN11, MEINH, UMREZ) and is the strongest signal: when the hint contradicts the name, trust the name — templates contain copy-paste mistakes in their descriptions. ' +
+    'Paired SAP quantity fields: UMREZ is the number of base units in a packing level; UMREN is its denominator (normally 1), so never map UMREN to a quantity. Code lists like "PC = PIECE | INB = BOX" mean a select/text attribute, never a metric. Only use codes from the lists — never invent one.\n' +
     'Return ONLY JSON keyed by each column\'s "col" number: { "<col>": <entry or null>, ... } covering every column.';
   const res = await makeRequest('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -524,26 +526,13 @@ function extractHeadersAndRows(worksheet) {
     return entry;
   });
 
-  let skuColNum = null;
-  for (const col of headerCols) {
-    if ([col.header, col.hint || ''].some(t => SKU_COL_PATS.some(p => p.test(t)))) { skuColNum = col.colNum; break; }
-  }
-  if (skuColNum === null) {
-    const sample = rowInfo.filter(ri => ri.r >= dataStartRow && !ri.isSkip).slice(0, 20);
-    let bestScore = -1;
-    for (const col of headerCols) {
-      const vals = sample.map(ri => { const x = ri.cells.find(c => c.c === col.colNum); return x ? x.t : null; }).filter(v => v !== null);
-      if (!vals.length) continue;
-      const unique = new Set(vals).size;
-      const alnum = vals.filter(v => /^[A-Za-z0-9_.\-]+$/.test(v) && v.length <= 20).length;
-      const score = (unique / vals.length) * (alnum / vals.length) * (vals.length / Math.max(sample.length, 1));
-      if (score > bestScore) { bestScore = score; skuColNum = col.colNum; }
-    }
-  }
-  if (skuColNum === null) skuColNum = 1;
+  // SKU column = first header (or hint) that names it. No guessing beyond that:
+  // when nothing matches it stays null and the client picks it in the portal.
+  const skuHeader = headerCols.find(col => [col.header, col.hint || ''].some(t => SKU_COL_PATS.some(p => p.test(t))));
+  const skuColNum = skuHeader ? skuHeader.colNum : null;
 
   const layout = { headerCols, headerRowIndex, dataStartRow, maxCols, skuColNum };
-  layout.rows = collectRows(worksheet, layout, skuColNum);
+  layout.rows = skuColNum === null ? [] : collectRows(worksheet, layout, skuColNum);
   return layout;
 }
 
@@ -604,16 +593,19 @@ async function enrichWorkbook(workbook, choice, fileName, env, log) {
   const layout = extractHeadersAndRows(worksheet);
   const fingerprint = headerFingerprint(layout.headerCols);
 
+  const noSkuCol = 'No SKU column chosen — pick the article number column in the portal first.';
   if (choice) {
     const skuCol = layout.headerCols.some(h => h.colNum === Number(choice.skuCol)) ? Number(choice.skuCol) : layout.skuColNum;
+    if (skuCol === null) throw new Error(noSkuCol);
     choice = { skuCol, mapping: cleanMapping(choice.mapping, layout.headerCols, skuCol) };
     await saveMapping(env, fingerprint, layout.headerCols, choice, fileName);
   } else {
     choice = await loadMapping(env, fingerprint);
     if (!choice) throw new Error('No saved column mapping for this template yet — open it in the portal and save a mapping first.');
+    if (!choice.skuCol) throw new Error(noSkuCol);
   }
 
-  const rows = choice.skuCol && choice.skuCol !== layout.skuColNum ? collectRows(worksheet, layout, choice.skuCol) : layout.rows;
+  const rows = choice.skuCol !== layout.skuColNum ? collectRows(worksheet, layout, choice.skuCol) : layout.rows;
   log('Header row ' + layout.headerRowIndex + ', data from row ' + layout.dataStartRow + ', ' + rows.length + ' rows');
 
   const token = await getAkeneoToken(env);
@@ -637,7 +629,12 @@ async function enrichWorkbook(workbook, choice, fileName, env, log) {
   prepareForWrite(workbook);
 }
 
-// ExcelJS cannot write some things it reads; strip them so writeBuffer() does not throw.
+// Conditional-format rule types ExcelJS can write (cf-rule-xform render()). Any other type, e.g.
+// "duplicateValues", is written as an empty <conditionalFormatting/> that Excel has to repair.
+const WRITABLE_CF_TYPES = ['expression', 'cellIs', 'top10', 'aboveAverage', 'dataBar', 'colorScale', 'iconSet', 'containsText', 'timePeriod'];
+
+// ExcelJS cannot write some things it reads; strip them so writeBuffer() does not throw
+// and Excel opens the result without a repair prompt.
 function prepareForWrite(workbook) {
   workbook.worksheets.forEach(ws => {
     // 'Shared Formula master must exist above and or left of clone'. Clone cells are
@@ -651,14 +648,18 @@ function prepareForWrite(workbook) {
         }
       });
     });
-    // x14 extended conditional-format rules ExcelJS can't serialize
+    // Drop rules ExcelJS can't serialize: unsupported types, and x14 extended rules (formula types without formulae).
     if (ws.conditionalFormattings) {
       ws.conditionalFormattings = ws.conditionalFormattings
-        .map(cf => { cf.rules = (cf.rules || []).filter(r => r.formulae !== undefined || ['expression', 'cellIs', 'containsText', 'timePeriod'].indexOf(r.type) === -1); return cf; })
+        .map(cf => {
+          cf.rules = (cf.rules || []).filter(r => WRITABLE_CF_TYPES.includes(r.type)
+            && (r.formulae !== undefined || ['expression', 'cellIs', 'containsText', 'timePeriod'].indexOf(r.type) === -1));
+          return cf;
+        })
         .filter(cf => cf.rules.length > 0);
     }
   });
 }
 
 // @cli-only
-module.exports = { loadWorkbook, extractHeadersAndRows, analyzeUpload, enrichWorkbook, readUpload, resolveValue, cleanMapping, headerFingerprint, buildSlotMap, buildSuggestColumns, CALC_FIELDS };
+module.exports = { loadWorkbook, extractHeadersAndRows, analyzeUpload, enrichWorkbook, readUpload, resolveValue, cleanMapping, headerFingerprint, buildSlotMap, buildSuggestColumns, prepareForWrite, CALC_FIELDS };

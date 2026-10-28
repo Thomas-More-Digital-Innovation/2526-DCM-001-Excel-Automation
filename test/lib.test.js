@@ -3,7 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
-const { loadWorkbook, extractHeadersAndRows, buildSlotMap, resolveValue, cleanMapping, readUpload, buildSuggestColumns } = require('../src/lib');
+const { loadWorkbook, extractHeadersAndRows, buildSlotMap, resolveValue, cleanMapping, readUpload, buildSuggestColumns, prepareForWrite } = require('../src/lib');
 const { buildWorkflow } = require('../scripts/build-workflow');
 
 const root = path.join(__dirname, '..');
@@ -32,6 +32,25 @@ test('hints combine every description row above the header, but not the example 
     'Supplier article code',
   ]);
   assert.ok(!r.headerCols.some(h => h.hint && h.hint.includes('Floralux N.V.')), 'branding rows must not become hints');
+});
+
+test('SKU column is found by its header, and left empty (null) when no header names it', async () => {
+  const ExcelJS = require('exceljs');
+  // Like real templates: data rows are sparser than the header row (they get filled by us).
+  const build = headers => {
+    const ws = new ExcelJS.Workbook().addWorksheet('S');
+    ws.addRow(headers);
+    ws.addRow(['A-100', 'Rood']);
+    ws.addRow(['A-200', 'Blauw']);
+    return ws;
+  };
+  const named = extractHeadersAndRows(build(['Artikelnummer', 'Kleur', 'Gewicht', 'Merk', 'EAN']));
+  assert.strictEqual(named.skuColNum, 1);
+  assert.deepStrictEqual(named.rows.map(r => r.sku), ['A-100', 'A-200']);
+
+  const unnamed = extractHeadersAndRows(build(['Code', 'Kleur', 'Gewicht', 'Merk', 'EAN']));
+  assert.strictEqual(unnamed.skuColNum, null);
+  assert.deepStrictEqual(unnamed.rows, []);
 });
 
 const units = [
@@ -89,6 +108,17 @@ test('OpenAI only gets header texts and hints, never row data, and not the SKU c
   for (const c of columns) assert.deepStrictEqual(Object.keys(c).filter(k => !['col', 'name', 'hint'].includes(k)), []);
   const sent = JSON.stringify(columns);
   for (const { sku } of r.rows) assert.ok(!sent.includes(sku), 'SKU ' + sku + ' leaked into the OpenAI payload');
+});
+
+test('written file has no empty conditional formatting (Excel would show a repair prompt)', async () => {
+  const JSZip = require('jszip');
+  const workbook = await loadWorkbook(sample);
+  prepareForWrite(workbook);
+  const zip = await JSZip.loadAsync(await workbook.xlsx.writeBuffer());
+  for (const name of Object.keys(zip.files).filter(n => /^xl\/worksheets\/sheet\d+\.xml$/.test(n))) {
+    const xml = await zip.file(name).async('string');
+    assert.ok(!/<conditionalFormatting[^>]*\/>/.test(xml), name + ' has an empty <conditionalFormatting/>');
+  }
 });
 
 test('uploads are read from the n8n webhook item', () => {

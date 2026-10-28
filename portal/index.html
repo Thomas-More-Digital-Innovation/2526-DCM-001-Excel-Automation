@@ -729,13 +729,22 @@
         ? 'Opgeslagen koppeling gevonden (laatst gewijzigd ' + new Date(data.savedAt).toLocaleString('nl-BE') + '). ' + data.rowCount + ' artikelregels in het bestand.'
         : 'Nieuwe template. Dit is een voorgestelde koppeling: controleer ze voordat u opslaat. Ze worden onthouden voor volgende keren. ' + data.rowCount + ' artikelregels in het bestand.';
 
-      skuSelect.replaceChildren(...data.columns.map(c => {
+      const skuOptions = data.columns.map(c => {
         const o = document.createElement('option');
         o.value = c.colNum;
         o.textContent = colLetter(c.colNum) + ': ' + c.header;
         o.selected = c.colNum === data.skuCol;
         return o;
-      }));
+      });
+      if (data.skuCol === null) {
+        // Not recognised from the headers: the client has to pick it.
+        const o = document.createElement('option');
+        o.value = '';
+        o.textContent = '— kies de kolom met het artikelnummer —';
+        o.selected = true;
+        skuOptions.unshift(o);
+      }
+      skuSelect.replaceChildren(...skuOptions);
 
       const localeOptions = ['<option value="">auto</option>'].concat(locales.map(l => '<option>' + esc(l) + '</option>')).join('');
       mappingBody.replaceChildren(...data.columns.map(c => {
@@ -777,7 +786,7 @@
         return tr;
       }));
 
-      skuSelect.onchange = () => { analysis.skuCol = Number(skuSelect.value); [...mappingBody.rows].forEach(updateRow); };
+      skuSelect.onchange = () => { analysis.skuCol = skuSelect.value ? Number(skuSelect.value) : null; [...mappingBody.rows].forEach(updateRow); };
       mappingEl.classList.add('visible');
       card.classList.add('wide');
       enrichBtn.style.display = 'none';
@@ -877,6 +886,7 @@
     // Step 2: save the mapping and enrich the file with it.
     saveBtn.addEventListener('click', () => {
       if (!selectedFile || !analysis) return;
+      if (analysis.skuCol === null) return showError('Kies eerst bovenaan de kolom met het artikelnummer.', 'Koppeling niet compleet.');
       const { mapping, invalid } = readMapping();
       if (invalid) return showError(invalid + ' kolom(men) hebben een bron die niet meer in Akeneo bestaat (rood gemarkeerd). Kies een andere bron of "niet invullen".', 'Koppeling niet geldig.');
       hideStatus();
