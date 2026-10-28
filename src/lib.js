@@ -376,6 +376,16 @@ async function withDb(env, fn) {
       created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
     )`);
+    // One row per header text, shared by every template that uses it. No row = never seen
+    // (ask OpenAI); a row with entry NULL = a person chose to leave that column empty.
+    await client.query(`CREATE TABLE IF NOT EXISTS header_mappings (
+      header      TEXT    NOT NULL,
+      occurrence  INTEGER NOT NULL,
+      entry       JSONB,
+      is_sku      BOOLEAN NOT NULL DEFAULT false,
+      updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (header, occurrence)
+    )`);
     return await fn(client);
   } finally {
     await client.end();
@@ -396,6 +406,45 @@ async function saveMapping(env, fingerprint, headerCols, choice, fileName) {
      ON CONFLICT (fingerprint) DO UPDATE
        SET sku_col = EXCLUDED.sku_col, mapping = EXCLUDED.mapping, file_name = EXCLUDED.file_name, updated_at = now()`,
     [fingerprint, JSON.stringify(headerCols.map(h => h.header)), choice.skuCol, JSON.stringify(choice.mapping), fileName || null]));
+}
+
+// Headers can repeat within a file, so each column is identified by its header text plus
+// which occurrence of that text it is (1st, 2nd…), counted left to right.
+function headerKeys(headerCols) {
+  const seen = {};
+  return headerCols.map(h => ({ colNum: h.colNum, header: h.header, occurrence: (seen[h.header] = (seen[h.header] || 0) + 1) }));
+}
+
+// What earlier files decided for these headers: { colNum: { entry, isSku } }, only for headers seen before.
+async function loadHeaderMappings(env, headerCols) {
+  const keys = headerKeys(headerCols);
+  const { rows } = await withDb(env, db => db.query(
+    `SELECT header, occurrence, entry, is_sku FROM header_mappings
+     WHERE (header, occurrence) IN (SELECT * FROM unnest($1::text[], $2::int[]))`,
+    [keys.map(k => k.header), keys.map(k => k.occurrence)]));
+  const byKey = new Map(rows.map(r => [r.header + '\n' + r.occurrence, r]));
+  const known = {};
+  for (const k of keys) {
+    const row = byKey.get(k.header + '\n' + k.occurrence);
+    if (row) known[k.colNum] = { entry: row.entry, isSku: row.is_sku };
+  }
+  return known;
+}
+
+// Remembers every column of this file (including "leave empty" and which one is the SKU) in one query.
+async function saveHeaderMappings(env, headerCols, choice) {
+  const keys = headerKeys(headerCols);
+  await withDb(env, db => db.query(
+    `INSERT INTO header_mappings (header, occurrence, entry, is_sku)
+     SELECT * FROM unnest($1::text[], $2::int[], $3::jsonb[], $4::boolean[])
+     ON CONFLICT (header, occurrence) DO UPDATE
+       SET entry = EXCLUDED.entry, is_sku = EXCLUDED.is_sku, updated_at = now()`,
+    [
+      keys.map(k => k.header),
+      keys.map(k => k.occurrence),
+      keys.map(k => choice.mapping[k.colNum] ? JSON.stringify(choice.mapping[k.colNum]) : null),
+      keys.map(k => k.colNum === choice.skuCol),
+    ]));
 }
 
 // ── Extract: find header row, hint row, SKU column and data rows ──────
@@ -662,4 +711,4 @@ function prepareForWrite(workbook) {
 }
 
 // @cli-only
-module.exports = { loadWorkbook, extractHeadersAndRows, analyzeUpload, enrichWorkbook, readUpload, resolveValue, cleanMapping, headerFingerprint, buildSlotMap, buildSuggestColumns, prepareForWrite, CALC_FIELDS };
+module.exports = { loadWorkbook, extractHeadersAndRows, analyzeUpload, enrichWorkbook, readUpload, resolveValue, cleanMapping, headerFingerprint, buildSlotMap, buildSuggestColumns, prepareForWrite, headerKeys, loadHeaderMappings, saveHeaderMappings, CALC_FIELDS };

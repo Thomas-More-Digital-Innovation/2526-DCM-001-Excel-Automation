@@ -3,7 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
-const { loadWorkbook, extractHeadersAndRows, buildSlotMap, resolveValue, cleanMapping, readUpload, buildSuggestColumns, prepareForWrite } = require('../src/lib');
+const { loadWorkbook, extractHeadersAndRows, buildSlotMap, resolveValue, cleanMapping, readUpload, buildSuggestColumns, prepareForWrite, headerKeys, loadHeaderMappings, saveHeaderMappings } = require('../src/lib');
 const { buildWorkflow } = require('../scripts/build-workflow');
 
 const root = path.join(__dirname, '..');
@@ -118,6 +118,37 @@ test('written file has no empty conditional formatting (Excel would show a repai
   for (const name of Object.keys(zip.files).filter(n => /^xl\/worksheets\/sheet\d+\.xml$/.test(n))) {
     const xml = await zip.file(name).async('string');
     assert.ok(!/<conditionalFormatting[^>]*\/>/.test(xml), name + ' has an empty <conditionalFormatting/>');
+  }
+});
+
+test('header keys number repeated headers left to right', () => {
+  const keys = headerKeys([{ header: 'EAN', colNum: 3 }, { header: 'MATNR', colNum: 4 }, { header: 'EAN', colNum: 9 }]);
+  assert.deepStrictEqual(keys, [
+    { colNum: 3, header: 'EAN', occurrence: 1 },
+    { colNum: 4, header: 'MATNR', occurrence: 1 },
+    { colNum: 9, header: 'EAN', occurrence: 2 },
+  ]);
+});
+
+// Needs Postgres: node --env-file=.env --test   (skipped by plain `npm test`)
+test('header mappings are remembered per header, across templates', { skip: !process.env.MAPPINGS_DB_URL }, async () => {
+  const { Client } = require('pg');
+  const tag = 'TEST_' + Date.now() + '_';
+  const templateA = [{ header: tag + 'SKU', colNum: 1 }, { header: tag + 'NAAM', colNum: 2 }, { header: tag + 'LEEG', colNum: 3 }];
+  try {
+    await saveHeaderMappings(process.env, templateA, { skuCol: 1, mapping: { 1: null, 2: { attr: 'title', locale: 'nl_BE' }, 3: null } });
+    // Different template: same NAAM header in another column, plus a header never seen before.
+    const known = await loadHeaderMappings(process.env, [{ header: tag + 'NIEUW', colNum: 1 }, { header: tag + 'NAAM', colNum: 5 }, { header: tag + 'SKU', colNum: 7 }, { header: tag + 'LEEG', colNum: 8 }]);
+    assert.deepStrictEqual(known, {
+      5: { entry: { attr: 'title', locale: 'nl_BE' }, isSku: false },
+      7: { entry: null, isSku: true },
+      8: { entry: null, isSku: false },
+    });
+  } finally {
+    const db = new Client({ connectionString: process.env.MAPPINGS_DB_URL });
+    await db.connect();
+    await db.query('DELETE FROM header_mappings WHERE header LIKE $1', [tag + '%']);
+    await db.end();
   }
 });
 
