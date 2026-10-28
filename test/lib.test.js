@@ -20,6 +20,20 @@ test('finds header row, data rows and SKUs in the Floralux template', async () =
   assert.deepStrictEqual(r.headerCols.slice(0, 3).map(h => h.header), ['IDNLF', 'MARA-BISMT', 'MATNR']);
 });
 
+test('hints combine every description row above the header, but not the example row below it', async () => {
+  const workbook = await loadWorkbook(sample);
+  const r = extractHeadersAndRows(workbook.worksheets[0]);
+  const idnlf = r.headerCols.find(h => h.header === 'IDNLF');
+  assert.deepStrictEqual(idnlf.hint.split('\n'), [
+    'INFORMATION BASE UNIT',
+    'Same as article code on packing slip and invoice',
+    'Artikelcode leverancier',
+    'Code article fournisseur',
+    'Supplier article code',
+  ]);
+  assert.ok(!r.headerCols.some(h => h.hint && h.hint.includes('Floralux N.V.')), 'branding rows must not become hints');
+});
+
 const units = [
   { unit_type: 'CE', unit_used: 'BOT', Aantal_CE: '1', EAN: '111' },
   { unit_type: 'X', unit_used: 'KAR', Aantal_CE: '12', EAN: '222' },

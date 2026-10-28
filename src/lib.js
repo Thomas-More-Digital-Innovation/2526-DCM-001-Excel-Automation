@@ -505,14 +505,22 @@ function extractHeadersAndRows(worksheet) {
   }, headerRegion[0]);
   const headerRowIndex = bestHeader.r;
 
+  // Every well-filled row above the header (section titles, explanations, translations) becomes
+  // part of the column's hint, top to bottom. Mostly-empty rows (branding, address) are skipped,
+  // and so are rows below the header: those hold example values, not descriptions.
+  let hintRows = headerRegion.filter(ri => ri.r < headerRowIndex && ri.ratio >= 0.3);
+  if (hintRows.length === 0) hintRows = rowInfo.filter(ri => ri.r === headerRowIndex - 1 && !ri.isSkip);
   const hintMap = {};
-  const firstDenseInRegion = headerRegion.find(ri => ri.ratio >= 0.5 && ri.r !== headerRowIndex);
-  const hintSource = firstDenseInRegion || rowInfo.find(ri => ri.r === headerRowIndex - 1 && !ri.isSkip);
-  if (hintSource) hintSource.cells.forEach(x => { hintMap[x.c] = x.t; });
+  for (const ri of hintRows) {
+    for (const x of ri.cells) {
+      const lines = hintMap[x.c] || (hintMap[x.c] = []);
+      if (lines[lines.length - 1] !== x.t) lines.push(x.t);  // merged cells repeat the same text
+    }
+  }
 
   const headerCols = bestHeader.cells.map(x => {
     const entry = { header: x.t, colNum: x.c };
-    if (hintMap[x.c]) entry.hint = hintMap[x.c];
+    if (hintMap[x.c]) entry.hint = hintMap[x.c].join('\n');
     return entry;
   });
 
