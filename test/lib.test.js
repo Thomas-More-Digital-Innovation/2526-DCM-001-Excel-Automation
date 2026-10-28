@@ -3,7 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
-const { loadWorkbook, extractHeadersAndRows, buildSlotMap, resolveValue, cleanMapping, readUpload } = require('../src/lib');
+const { loadWorkbook, extractHeadersAndRows, buildSlotMap, resolveValue, cleanMapping, readUpload, buildSuggestColumns } = require('../src/lib');
 const { buildWorkflow } = require('../scripts/build-workflow');
 
 const root = path.join(__dirname, '..');
@@ -65,6 +65,16 @@ test('portal mappings are cleaned: unknown columns, calc fields, junk and the SK
     9: { attr: 'title' },
   }, headerCols, 1);
   assert.deepStrictEqual(cleaned, { 1: null, 2: { attr: 'title', locale: 'nl_BE' }, 3: null, 4: { calc: 'base_unit' }, 5: null });
+});
+
+test('OpenAI only gets header texts and hints, never row data, and not the SKU column', async () => {
+  const workbook = await loadWorkbook(sample);
+  const r = extractHeadersAndRows(workbook.worksheets[0]);
+  const columns = buildSuggestColumns(r.headerCols, r.skuColNum);
+  assert.strictEqual(columns.length, r.headerCols.length - 1);
+  for (const c of columns) assert.deepStrictEqual(Object.keys(c).filter(k => !['col', 'name', 'hint'].includes(k)), []);
+  const sent = JSON.stringify(columns);
+  for (const { sku } of r.rows) assert.ok(!sent.includes(sku), 'SKU ' + sku + ' leaked into the OpenAI payload');
 });
 
 test('uploads are read from the n8n webhook item', () => {

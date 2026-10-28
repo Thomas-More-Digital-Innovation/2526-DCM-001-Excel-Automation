@@ -20,8 +20,6 @@ function checkEnv(env, keys) {
 }
 const AKENEO_ENV = ['AKENEO_BASE_URL', 'AKENEO_CLIENT_ID', 'AKENEO_CLIENT_SECRET', 'AKENEO_USERNAME', 'AKENEO_PASSWORD'];
 
-// ── HTTP ──────────────────────────────────────────────────────────────
-
 // Plain http(s) instead of fetch: fetch is not guaranteed inside the n8n Code node sandbox.
 function makeRequest(url, options) {
   options = options || {};
@@ -303,15 +301,19 @@ function cleanMapping(mapping, headerCols, skuCol) {
   return out;
 }
 
-// First draft for a template we have not seen before. A person reviews it in the portal.
-async function suggestMapping(env, headerCols, skuCol, samples, attributes, locales) {
-  checkEnv(env, ['OPENAI_API_KEY']);
-  const columns = headerCols.filter(h => h.colNum !== skuCol).map(h => {
+// What OpenAI sees of the template: header texts and hints only, never values from the data rows.
+function buildSuggestColumns(headerCols, skuCol) {
+  return headerCols.filter(h => h.colNum !== skuCol).map(h => {
     const c = { col: h.colNum, name: h.header };
     if (h.hint) c.hint = h.hint.replace(/\n/g, ' | ');
-    if (samples[h.colNum]) c.example = samples[h.colNum];
     return c;
   });
+}
+
+// First draft for a template we have not seen before. A person reviews it in the portal.
+async function suggestMapping(env, headerCols, skuCol, attributes, locales) {
+  checkEnv(env, ['OPENAI_API_KEY']);
+  const columns = buildSuggestColumns(headerCols, skuCol);
   const calcFields = Object.entries(CALC_FIELDS).map(([code, f]) => ({ code, label: f.label }));
   const systemPrompt = 'You map the columns of a supplier Excel template to product data from Akeneo PIM.\n' +
     'Map as many columns as you reasonably can: descriptions, commodity group, product hierarchy, supplier, brand, material, colour, classifications, weights, dimensions, packing levels, flags. Leave a column null only when nothing plausibly fits.\n' +
@@ -320,7 +322,7 @@ async function suggestMapping(env, headerCols, skuCol, samples, attributes, loca
     '- {"attr": "<attribute code>", "yesno": true} — for Y/N flag columns (e.g. recycling fee / packaging-tax flags), mapped to the matching boolean or flag attribute.\n' +
     '- {"calc": "<code>"} — one of calc_fields, for packing-unit columns (base unit, units per box/carton/pallet, EAN per packing level, minimum order quantity) and country of origin.\n' +
     '- null — when nothing fits, and ALWAYS for: prices of any kind, date columns (valid-from, ddmmjjjj, datum), and identifiers the customer assigns themselves (their own internal article number).\n' +
-    '"hint" (when present) describes expected values or format; "example" is the value currently in the first data row. Code lists like "PC = PIECE | INB = BOX" mean a select/text attribute, never a metric. Only use codes from the lists — never invent one.\n' +
+    '"hint" (when present) describes expected values or format. Code lists like "PC = PIECE | INB = BOX" mean a select/text attribute, never a metric. Only use codes from the lists — never invent one.\n' +
     'Return ONLY JSON keyed by each column\'s "col" number: { "<col>": <entry or null>, ... } covering every column.';
   const res = await makeRequest('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -581,7 +583,7 @@ async function analyzeUpload(buffer, fileName, env) {
     savedAt: saved ? saved.updatedAt : null,
     skuCol,
     samples,
-    mapping: saved ? cleanMapping(saved.mapping, layout.headerCols, skuCol) : await suggestMapping(env, layout.headerCols, skuCol, samples, attributes, locales),
+    mapping: saved ? cleanMapping(saved.mapping, layout.headerCols, skuCol) : await suggestMapping(env, layout.headerCols, skuCol, attributes, locales),
     options: { attributes, locales, calcFields: Object.entries(CALC_FIELDS).map(([code, f]) => ({ code, label: f.label })) },
   };
 }
@@ -651,4 +653,4 @@ function prepareForWrite(workbook) {
 }
 
 // @cli-only
-module.exports = { loadWorkbook, extractHeadersAndRows, analyzeUpload, enrichWorkbook, readUpload, resolveValue, cleanMapping, headerFingerprint, buildSlotMap, CALC_FIELDS };
+module.exports = { loadWorkbook, extractHeadersAndRows, analyzeUpload, enrichWorkbook, readUpload, resolveValue, cleanMapping, headerFingerprint, buildSlotMap, buildSuggestColumns, CALC_FIELDS };
