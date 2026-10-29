@@ -403,6 +403,7 @@
     .mapping td.col-header { font-weight: 600; white-space: nowrap; }
     .mapping td.col-meta { color: var(--text-muted); max-width: 260px; }
     .mapping td.col-meta div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mapping td.col-example { color: var(--text-muted); max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .mapping td.col-source select { width: 100%; min-width: 240px; max-width: 380px; }
     .mapping td.col-yesno { text-align: center; }
 
@@ -487,7 +488,7 @@
         <div class="mapping-table-wrap">
           <table>
             <thead>
-              <tr><th>Letter</th><th>Kolomnaam</th><th>Hint en huidige waarde</th><th>Akeneo-bron</th><th>Taal</th><th title="Schrijf Y als de waarde in Akeneo ja/true is, anders N">Ja/nee</th></tr>
+              <tr><th>Letter</th><th>Kolomnaam</th><th>Hint</th><th title="Wat er nu in de eerste artikelregel staat">Voorbeeldwaarde</th><th>Akeneo-bron</th><th>Taal</th><th title="Schrijf Y als de waarde in Akeneo ja/true is, anders N">Ja/nee</th></tr>
             </thead>
             <tbody id="mappingBody"></tbody>
           </table>
@@ -726,7 +727,7 @@
 
       mappingInfo.className = 'mapping-info' + (data.saved ? '' : ' new');
       mappingInfo.textContent = data.saved
-        ? 'Opgeslagen koppeling gevonden (laatst gewijzigd ' + new Date(data.savedAt).toLocaleString('nl-BE') + '). ' + data.rowCount + ' artikelregels in het bestand.'
+        ? 'Alle kolommen herkend uit eerdere bestanden. ' + data.rowCount + ' artikelregels in het bestand.'
         : 'Nieuwe template. Dit is een voorgestelde koppeling: controleer ze voordat u opslaat. Ze worden onthouden voor volgende keren. ' + data.rowCount + ' artikelregels in het bestand.';
 
       const skuOptions = data.columns.map(c => {
@@ -753,7 +754,7 @@
         tr.dataset.col = c.colNum;
         tr.dataset.search = (colLetter(c.colNum) + ' ' + c.header + ' ' + (c.hint || '')).toLowerCase();
         tr.innerHTML =
-          '<td class="col-letter"></td><td class="col-header"></td><td class="col-meta"><div class="hint"></div><div class="example"></div></td>' +
+          '<td class="col-letter"></td><td class="col-header"></td><td class="col-meta"><div class="hint"></div></td><td class="col-example"></td>' +
           '<td class="col-source"><select class="source">' + sourceOptionsHtml + '</select></td>' +
           '<td><select class="locale">' + localeOptions + '</select></td>' +
           '<td class="col-yesno"><input type="checkbox"></td>';
@@ -762,7 +763,8 @@
         tr.querySelector('.hint').textContent = c.hint ? c.hint.replace(/\n/g, ' | ') : '';
         tr.querySelector('.hint').title = c.hint || '';
         const example = data.samples && data.samples[c.colNum];
-        tr.querySelector('.example').textContent = example ? 'Nu: ' + example : '';
+        tr.querySelector('.col-example').textContent = example || '';
+        tr.querySelector('.col-example').title = example || '';
         const source = tr.querySelector('select.source');
         const locale = tr.querySelector('select.locale');
         const yesno = tr.querySelector('input[type=checkbox]');
