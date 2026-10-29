@@ -215,7 +215,13 @@ async function fetchAllPages(url, token, label) {
 
 async function fetchAkeneoAttributes(env, token) {
   const items = await fetchAllPages(env.AKENEO_BASE_URL + '/api/rest/v1/attributes?limit=100', token, 'attributes');
-  return items.map(a => ({ code: a.code, label: (a.labels && (a.labels.en_US || a.labels.en)) || a.code, type: a.type, localizable: !!a.localizable }));
+  return items.map(a => ({ code: a.code, label: (a.labels && (a.labels.en_US || a.labels.en)) || a.code, type: a.type, localizable: !!a.localizable, group: a.group }));
+}
+
+// Only for the portal: groups the Akeneo-bron dropdown the same way Akeneo does.
+async function fetchAkeneoAttributeGroups(env, token) {
+  const items = await fetchAllPages(env.AKENEO_BASE_URL + '/api/rest/v1/attribute-groups?limit=100', token, 'attribute groups');
+  return items.map(g => ({ code: g.code, label: (g.labels && (g.labels.en_US || g.labels.en)) || g.code, sortOrder: g.sort_order || 0 }));
 }
 
 async function fetchAkeneoLocales(env, token) {
@@ -596,7 +602,9 @@ async function analyzeUpload(buffer, fileName, env) {
   const worksheet = workbook.worksheets[0];
   const layout = extractHeadersAndRows(worksheet);
   const token = await getAkeneoToken(env);
-  const [attributes, locales, known] = await Promise.all([fetchAkeneoAttributes(env, token), fetchAkeneoLocales(env, token), loadHeaderMappings(env, layout.headerCols)]);
+  const [attributes, attributeGroups, locales, known] = await Promise.all([
+    fetchAkeneoAttributes(env, token), fetchAkeneoAttributeGroups(env, token), fetchAkeneoLocales(env, token), loadHeaderMappings(env, layout.headerCols),
+  ]);
   const { skuCol, mapping, unknown } = applyKnown(layout, known);
   // Only headers no earlier file has decided on go to OpenAI.
   const source = {};
@@ -620,7 +628,7 @@ async function analyzeUpload(buffer, fileName, env) {
     skuCol,
     samples,
     mapping,
-    options: { attributes, locales, calcFields: Object.entries(CALC_FIELDS).map(([code, f]) => ({ code, label: f.label })) },
+    options: { attributes, attributeGroups, locales, calcFields: Object.entries(CALC_FIELDS).map(([code, f]) => ({ code, label: f.label })) },
   };
 }
 
