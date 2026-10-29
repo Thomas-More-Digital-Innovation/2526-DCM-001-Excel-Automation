@@ -11,7 +11,6 @@
 const ExcelJS = require('exceljs');
 const https = require('https');
 const http = require('http');
-const crypto = require('crypto');
 const { URL } = require('url');
 const { Client } = require('pg');
 
@@ -19,8 +18,6 @@ function checkEnv(env, keys) {
   keys.forEach(k => { if (!env[k]) throw new Error('Missing env var: ' + k); });
 }
 const AKENEO_ENV = ['AKENEO_BASE_URL', 'AKENEO_CLIENT_ID', 'AKENEO_CLIENT_SECRET', 'AKENEO_USERNAME', 'AKENEO_PASSWORD'];
-
-// ── HTTP ──────────────────────────────────────────────────────────────
 
 // Plain http(s) instead of fetch: fetch is not guaranteed inside the n8n Code node sandbox.
 function makeRequest(url, options) {
@@ -218,7 +215,13 @@ async function fetchAllPages(url, token, label) {
 
 async function fetchAkeneoAttributes(env, token) {
   const items = await fetchAllPages(env.AKENEO_BASE_URL + '/api/rest/v1/attributes?limit=100', token, 'attributes');
-  return items.map(a => ({ code: a.code, label: (a.labels && (a.labels.en_US || a.labels.en)) || a.code, type: a.type, localizable: !!a.localizable }));
+  return items.map(a => ({ code: a.code, label: (a.labels && (a.labels.en_US || a.labels.en)) || a.code, type: a.type, localizable: !!a.localizable, group: a.group }));
+}
+
+// Only for the portal: groups the Akeneo-bron dropdown the same way Akeneo does.
+async function fetchAkeneoAttributeGroups(env, token) {
+  const items = await fetchAllPages(env.AKENEO_BASE_URL + '/api/rest/v1/attribute-groups?limit=100', token, 'attribute groups');
+  return items.map(g => ({ code: g.code, label: (g.labels && (g.labels.en_US || g.labels.en)) || g.code, sortOrder: g.sort_order || 0 }));
 }
 
 async function fetchAkeneoLocales(env, token) {
@@ -303,15 +306,19 @@ function cleanMapping(mapping, headerCols, skuCol) {
   return out;
 }
 
-// First draft for a template we have not seen before. A person reviews it in the portal.
-async function suggestMapping(env, headerCols, skuCol, samples, attributes, locales) {
-  checkEnv(env, ['OPENAI_API_KEY']);
-  const columns = headerCols.filter(h => h.colNum !== skuCol).map(h => {
+// What OpenAI sees of the template: header texts and hints only, never values from the data rows.
+function buildSuggestColumns(headerCols, skuCol) {
+  return headerCols.filter(h => h.colNum !== skuCol).map(h => {
     const c = { col: h.colNum, name: h.header };
     if (h.hint) c.hint = h.hint.replace(/\n/g, ' | ');
-    if (samples[h.colNum]) c.example = samples[h.colNum];
     return c;
   });
+}
+
+// First draft for a template we have not seen before. A person reviews it in the portal.
+async function suggestMapping(env, headerCols, skuCol, attributes, locales) {
+  checkEnv(env, ['OPENAI_API_KEY']);
+  const columns = buildSuggestColumns(headerCols, skuCol);
   const calcFields = Object.entries(CALC_FIELDS).map(([code, f]) => ({ code, label: f.label }));
   const systemPrompt = 'You map the columns of a supplier Excel template to product data from Akeneo PIM.\n' +
     'Map as many columns as you reasonably can: descriptions, commodity group, product hierarchy, supplier, brand, material, colour, classifications, weights, dimensions, packing levels, flags. Leave a column null only when nothing plausibly fits.\n' +
@@ -320,7 +327,9 @@ async function suggestMapping(env, headerCols, skuCol, samples, attributes, loca
     '- {"attr": "<attribute code>", "yesno": true} — for Y/N flag columns (e.g. recycling fee / packaging-tax flags), mapped to the matching boolean or flag attribute.\n' +
     '- {"calc": "<code>"} — one of calc_fields, for packing-unit columns (base unit, units per box/carton/pallet, EAN per packing level, minimum order quantity) and country of origin.\n' +
     '- null — when nothing fits, and ALWAYS for: prices of any kind, date columns (valid-from, ddmmjjjj, datum), and identifiers the customer assigns themselves (their own internal article number).\n' +
-    '"hint" (when present) describes expected values or format; "example" is the value currently in the first data row. Code lists like "PC = PIECE | INB = BOX" mean a select/text attribute, never a metric. Only use codes from the lists — never invent one.\n' +
+    '"hint" (when present) is the template\'s own description rows (often the same text in several languages); it describes expected values or format. ' +
+    'The column "name" is usually a SAP field code (e.g. MATNR, EAN11, MEINH, UMREZ) and is the strongest signal: when the hint contradicts the name, trust the name — templates contain copy-paste mistakes in their descriptions. ' +
+    'Paired SAP quantity fields: UMREZ is the number of base units in a packing level; UMREN is its denominator (normally 1), so never map UMREN to a quantity. Code lists like "PC = PIECE | INB = BOX" mean a select/text attribute, never a metric. Only use codes from the lists — never invent one.\n' +
     'Return ONLY JSON keyed by each column\'s "col" number: { "<col>": <entry or null>, ... } covering every column.';
   const res = await makeRequest('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -353,24 +362,20 @@ async function suggestMapping(env, headerCols, skuCol, samples, attributes, loca
   return mapping;
 }
 
-// Same headers in the same order = same template.
-function headerFingerprint(headerCols) {
-  return crypto.createHash('sha256').update(JSON.stringify(headerCols.map(h => h.header))).digest('hex');
-}
-
 async function withDb(env, fn) {
   checkEnv(env, ['MAPPINGS_DB_URL']);
   const client = new Client({ connectionString: env.MAPPINGS_DB_URL });
   await client.connect();
   try {
-    await client.query(`CREATE TABLE IF NOT EXISTS column_mappings (
-      fingerprint TEXT PRIMARY KEY,
-      headers     JSONB NOT NULL,
-      sku_col     INTEGER,
-      mapping     JSONB NOT NULL,
-      file_name   TEXT,
-      created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    // One row per header text, shared by every template that uses it. No row = never seen
+    // (ask OpenAI); a row with entry NULL = a person chose to leave that column empty.
+    await client.query(`CREATE TABLE IF NOT EXISTS header_mappings (
+      header      TEXT    NOT NULL,
+      occurrence  INTEGER NOT NULL,
+      entry       JSONB,
+      is_sku      BOOLEAN NOT NULL DEFAULT false,
+      updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (header, occurrence)
     )`);
     return await fn(client);
   } finally {
@@ -378,20 +383,57 @@ async function withDb(env, fn) {
   }
 }
 
-async function loadMapping(env, fingerprint) {
-  return withDb(env, async db => {
-    const { rows } = await db.query('SELECT sku_col, mapping, updated_at FROM column_mappings WHERE fingerprint = $1', [fingerprint]);
-    return rows[0] ? { skuCol: rows[0].sku_col, mapping: rows[0].mapping, updatedAt: rows[0].updated_at } : null;
-  });
+// Headers can repeat within a file, so each column is identified by its header text plus
+// which occurrence of that text it is (1st, 2nd…), counted left to right.
+function headerKeys(headerCols) {
+  const seen = {};
+  return headerCols.map(h => ({ colNum: h.colNum, header: h.header, occurrence: (seen[h.header] = (seen[h.header] || 0) + 1) }));
 }
 
-async function saveMapping(env, fingerprint, headerCols, choice, fileName) {
+// What earlier files decided for these headers: { colNum: { entry, isSku } }, only for headers seen before.
+async function loadHeaderMappings(env, headerCols) {
+  const keys = headerKeys(headerCols);
+  const { rows } = await withDb(env, db => db.query(
+    `SELECT header, occurrence, entry, is_sku FROM header_mappings
+     WHERE (header, occurrence) IN (SELECT * FROM unnest($1::text[], $2::int[]))`,
+    [keys.map(k => k.header), keys.map(k => k.occurrence)]));
+  const byKey = new Map(rows.map(r => [r.header + '\n' + r.occurrence, r]));
+  const known = {};
+  for (const k of keys) {
+    const row = byKey.get(k.header + '\n' + k.occurrence);
+    if (row) known[k.colNum] = { entry: row.entry, isSku: row.is_sku };
+  }
+  return known;
+}
+
+// Remembers every column of this file (including "leave empty" and which one is the SKU) in one query.
+async function saveHeaderMappings(env, headerCols, choice) {
+  const keys = headerKeys(headerCols);
   await withDb(env, db => db.query(
-    `INSERT INTO column_mappings (fingerprint, headers, sku_col, mapping, file_name)
-     VALUES ($1, $2, $3, $4, $5)
-     ON CONFLICT (fingerprint) DO UPDATE
-       SET sku_col = EXCLUDED.sku_col, mapping = EXCLUDED.mapping, file_name = EXCLUDED.file_name, updated_at = now()`,
-    [fingerprint, JSON.stringify(headerCols.map(h => h.header)), choice.skuCol, JSON.stringify(choice.mapping), fileName || null]));
+    `INSERT INTO header_mappings (header, occurrence, entry, is_sku)
+     SELECT * FROM unnest($1::text[], $2::int[], $3::jsonb[], $4::boolean[])
+     ON CONFLICT (header, occurrence) DO UPDATE
+       SET entry = EXCLUDED.entry, is_sku = EXCLUDED.is_sku, updated_at = now()`,
+    [
+      keys.map(k => k.header),
+      keys.map(k => k.occurrence),
+      keys.map(k => choice.mapping[k.colNum] ? JSON.stringify(choice.mapping[k.colNum]) : null),
+      keys.map(k => k.colNum === choice.skuCol),
+    ]));
+}
+
+// Applies what earlier files decided: the stored SKU column (else the one found by its header)
+// and the stored entries. Columns never seen before come back in `unknown`, mapped to null.
+function applyKnown(layout, known) {
+  const stored = layout.headerCols.find(h => known[h.colNum] && known[h.colNum].isSku);
+  const skuCol = stored ? stored.colNum : layout.skuColNum;
+  const entries = {};
+  for (const col in known) entries[col] = known[col].entry;
+  return {
+    skuCol,
+    mapping: cleanMapping(entries, layout.headerCols, skuCol),
+    unknown: layout.headerCols.filter(h => !known[h.colNum] && h.colNum !== skuCol),
+  };
 }
 
 // ── Extract: find header row, hint row, SKU column and data rows ──────
@@ -503,37 +545,32 @@ function extractHeadersAndRows(worksheet) {
   }, headerRegion[0]);
   const headerRowIndex = bestHeader.r;
 
+  // Every well-filled row above the header (section titles, explanations, translations) becomes
+  // part of the column's hint, top to bottom. Mostly-empty rows (branding, address) are skipped,
+  // and so are rows below the header: those hold example values, not descriptions.
+  let hintRows = headerRegion.filter(ri => ri.r < headerRowIndex && ri.ratio >= 0.3);
+  if (hintRows.length === 0) hintRows = rowInfo.filter(ri => ri.r === headerRowIndex - 1 && !ri.isSkip);
   const hintMap = {};
-  const firstDenseInRegion = headerRegion.find(ri => ri.ratio >= 0.5 && ri.r !== headerRowIndex);
-  const hintSource = firstDenseInRegion || rowInfo.find(ri => ri.r === headerRowIndex - 1 && !ri.isSkip);
-  if (hintSource) hintSource.cells.forEach(x => { hintMap[x.c] = x.t; });
+  for (const ri of hintRows) {
+    for (const x of ri.cells) {
+      const lines = hintMap[x.c] || (hintMap[x.c] = []);
+      if (lines[lines.length - 1] !== x.t) lines.push(x.t);  // merged cells repeat the same text
+    }
+  }
 
   const headerCols = bestHeader.cells.map(x => {
     const entry = { header: x.t, colNum: x.c };
-    if (hintMap[x.c]) entry.hint = hintMap[x.c];
+    if (hintMap[x.c]) entry.hint = hintMap[x.c].join('\n');
     return entry;
   });
 
-  let skuColNum = null;
-  for (const col of headerCols) {
-    if ([col.header, col.hint || ''].some(t => SKU_COL_PATS.some(p => p.test(t)))) { skuColNum = col.colNum; break; }
-  }
-  if (skuColNum === null) {
-    const sample = rowInfo.filter(ri => ri.r >= dataStartRow && !ri.isSkip).slice(0, 20);
-    let bestScore = -1;
-    for (const col of headerCols) {
-      const vals = sample.map(ri => { const x = ri.cells.find(c => c.c === col.colNum); return x ? x.t : null; }).filter(v => v !== null);
-      if (!vals.length) continue;
-      const unique = new Set(vals).size;
-      const alnum = vals.filter(v => /^[A-Za-z0-9_.\-]+$/.test(v) && v.length <= 20).length;
-      const score = (unique / vals.length) * (alnum / vals.length) * (vals.length / Math.max(sample.length, 1));
-      if (score > bestScore) { bestScore = score; skuColNum = col.colNum; }
-    }
-  }
-  if (skuColNum === null) skuColNum = 1;
+  // SKU column = first header (or hint) that names it. No guessing beyond that:
+  // when nothing matches it stays null and the client picks it in the portal.
+  const skuHeader = headerCols.find(col => [col.header, col.hint || ''].some(t => SKU_COL_PATS.some(p => p.test(t))));
+  const skuColNum = skuHeader ? skuHeader.colNum : null;
 
   const layout = { headerCols, headerRowIndex, dataStartRow, maxCols, skuColNum };
-  layout.rows = collectRows(worksheet, layout, skuColNum);
+  layout.rows = skuColNum === null ? [] : collectRows(worksheet, layout, skuColNum);
   return layout;
 }
 
@@ -562,48 +599,61 @@ async function loadWorkbook(buffer) {
 // Everything the portal needs to show the mapping screen.
 async function analyzeUpload(buffer, fileName, env) {
   const workbook = await loadWorkbook(buffer);
-  const layout = extractHeadersAndRows(workbook.worksheets[0]);
-  const fingerprint = headerFingerprint(layout.headerCols);
+  const worksheet = workbook.worksheets[0];
+  const layout = extractHeadersAndRows(worksheet);
   const token = await getAkeneoToken(env);
-  const [attributes, locales, saved] = await Promise.all([fetchAkeneoAttributes(env, token), fetchAkeneoLocales(env, token), loadMapping(env, fingerprint)]);
-  const skuCol = saved && saved.skuCol ? saved.skuCol : layout.skuColNum;
+  const [attributes, attributeGroups, locales, known] = await Promise.all([
+    fetchAkeneoAttributes(env, token), fetchAkeneoAttributeGroups(env, token), fetchAkeneoLocales(env, token), loadHeaderMappings(env, layout.headerCols),
+  ]);
+  const { skuCol, mapping, unknown } = applyKnown(layout, known);
+  // Only headers no earlier file has decided on go to OpenAI.
+  const source = {};
+  for (const col in known) source[col] = 'saved';
+  if (unknown.length) {
+    const suggested = await suggestMapping(env, unknown, skuCol, attributes, locales);
+    for (const { colNum } of unknown) { mapping[colNum] = suggested[colNum]; source[colNum] = 'ai'; }
+  }
+  const rows = skuCol !== layout.skuColNum ? collectRows(worksheet, layout, skuCol) : layout.rows;
   const samples = {};
-  const firstRow = layout.rows[0] && workbook.worksheets[0].getRow(layout.rows[0].rowNum);
+  const firstRow = rows[0] && worksheet.getRow(rows[0].rowNum);
   if (firstRow) layout.headerCols.forEach(h => { samples[h.colNum] = getCellText(firstRow.getCell(h.colNum).value); });
   return {
     fileName,
-    fingerprint,
     headerRowIndex: layout.headerRowIndex,
     dataStartRow: layout.dataStartRow,
-    rowCount: layout.rows.length,
+    rowCount: rows.length,
     columns: layout.headerCols,
-    saved: !!saved,
-    savedAt: saved ? saved.updatedAt : null,
+    saved: unknown.length === 0,
+    source,
     skuCol,
     samples,
-    mapping: saved ? cleanMapping(saved.mapping, layout.headerCols, skuCol) : await suggestMapping(env, layout.headerCols, skuCol, samples, attributes, locales),
-    options: { attributes, locales, calcFields: Object.entries(CALC_FIELDS).map(([code, f]) => ({ code, label: f.label })) },
+    mapping,
+    options: { attributes, attributeGroups, locales, calcFields: Object.entries(CALC_FIELDS).map(([code, f]) => ({ code, label: f.label })) },
   };
 }
 
-// Fills the first worksheet. `choice` = { skuCol, mapping } from the portal (saved to the DB
-// first), or null to use the mapping already saved for this template.
-async function enrichWorkbook(workbook, choice, fileName, env, log) {
+// Fills the first worksheet. `choice` = { skuCol, mapping } from the portal (remembered per
+// header first), or null to use what earlier files decided for these headers.
+async function enrichWorkbook(workbook, choice, env, log) {
   log = log || (() => {});
   const worksheet = workbook.worksheets[0];
   const layout = extractHeadersAndRows(worksheet);
-  const fingerprint = headerFingerprint(layout.headerCols);
 
+  const noSkuCol = 'No SKU column chosen — pick the article number column in the portal first.';
   if (choice) {
     const skuCol = layout.headerCols.some(h => h.colNum === Number(choice.skuCol)) ? Number(choice.skuCol) : layout.skuColNum;
+    if (skuCol === null) throw new Error(noSkuCol);
     choice = { skuCol, mapping: cleanMapping(choice.mapping, layout.headerCols, skuCol) };
-    await saveMapping(env, fingerprint, layout.headerCols, choice, fileName);
+    await saveHeaderMappings(env, layout.headerCols, choice);
   } else {
-    choice = await loadMapping(env, fingerprint);
-    if (!choice) throw new Error('No saved column mapping for this template yet — open it in the portal and save a mapping first.');
+    const known = await loadHeaderMappings(env, layout.headerCols);
+    if (Object.keys(known).length === 0) throw new Error('None of these headers have a saved mapping yet — open the file in the portal and save a mapping first.');
+    choice = applyKnown(layout, known);
+    if (choice.skuCol === null) throw new Error(noSkuCol);
+    if (choice.unknown.length) log('Not seen before, left empty: ' + choice.unknown.map(h => h.header).join(', '));
   }
 
-  const rows = choice.skuCol && choice.skuCol !== layout.skuColNum ? collectRows(worksheet, layout, choice.skuCol) : layout.rows;
+  const rows = choice.skuCol !== layout.skuColNum ? collectRows(worksheet, layout, choice.skuCol) : layout.rows;
   log('Header row ' + layout.headerRowIndex + ', data from row ' + layout.dataStartRow + ', ' + rows.length + ' rows');
 
   const token = await getAkeneoToken(env);
@@ -627,7 +677,12 @@ async function enrichWorkbook(workbook, choice, fileName, env, log) {
   prepareForWrite(workbook);
 }
 
-// ExcelJS cannot write some things it reads; strip them so writeBuffer() does not throw.
+// Conditional-format rule types ExcelJS can write (cf-rule-xform render()). Any other type, e.g.
+// "duplicateValues", is written as an empty <conditionalFormatting/> that Excel has to repair.
+const WRITABLE_CF_TYPES = ['expression', 'cellIs', 'top10', 'aboveAverage', 'dataBar', 'colorScale', 'iconSet', 'containsText', 'timePeriod'];
+
+// ExcelJS cannot write some things it reads; strip them so writeBuffer() does not throw
+// and Excel opens the result without a repair prompt.
 function prepareForWrite(workbook) {
   workbook.worksheets.forEach(ws => {
     // 'Shared Formula master must exist above and or left of clone'. Clone cells are
@@ -641,14 +696,18 @@ function prepareForWrite(workbook) {
         }
       });
     });
-    // x14 extended conditional-format rules ExcelJS can't serialize
+    // Drop rules ExcelJS can't serialize: unsupported types, and x14 extended rules (formula types without formulae).
     if (ws.conditionalFormattings) {
       ws.conditionalFormattings = ws.conditionalFormattings
-        .map(cf => { cf.rules = (cf.rules || []).filter(r => r.formulae !== undefined || ['expression', 'cellIs', 'containsText', 'timePeriod'].indexOf(r.type) === -1); return cf; })
+        .map(cf => {
+          cf.rules = (cf.rules || []).filter(r => WRITABLE_CF_TYPES.includes(r.type)
+            && (r.formulae !== undefined || ['expression', 'cellIs', 'containsText', 'timePeriod'].indexOf(r.type) === -1));
+          return cf;
+        })
         .filter(cf => cf.rules.length > 0);
     }
   });
 }
 
 // @cli-only
-module.exports = { loadWorkbook, extractHeadersAndRows, analyzeUpload, enrichWorkbook, readUpload, resolveValue, cleanMapping, headerFingerprint, buildSlotMap, CALC_FIELDS };
+module.exports = { loadWorkbook, extractHeadersAndRows, analyzeUpload, enrichWorkbook, readUpload, resolveValue, cleanMapping, buildSlotMap, buildSuggestColumns, prepareForWrite, headerKeys, loadHeaderMappings, saveHeaderMappings, applyKnown, CALC_FIELDS };

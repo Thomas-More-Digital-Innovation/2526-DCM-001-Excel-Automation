@@ -403,6 +403,7 @@
     .mapping td.col-header { font-weight: 600; white-space: nowrap; }
     .mapping td.col-meta { color: var(--text-muted); max-width: 260px; }
     .mapping td.col-meta div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mapping td.col-example { color: var(--text-muted); max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .mapping td.col-source select { width: 100%; min-width: 240px; max-width: 380px; }
     .mapping td.col-yesno { text-align: center; }
 
@@ -487,7 +488,7 @@
         <div class="mapping-table-wrap">
           <table>
             <thead>
-              <tr><th>Letter</th><th>Kolomnaam</th><th>Hint en huidige waarde</th><th>Akeneo-bron</th><th>Taal</th><th title="Schrijf Y als de waarde in Akeneo ja/true is, anders N">Ja/nee</th></tr>
+              <tr><th>Letter</th><th>Kolomnaam</th><th>Hint</th><th title="Wat er nu in de eerste artikelregel staat">Voorbeeldwaarde</th><th>Akeneo-bron</th><th>Taal</th><th title="Schrijf Y als de waarde in Akeneo ja/true is, anders N">Ja/nee</th></tr>
             </thead>
             <tbody id="mappingBody"></tbody>
           </table>
@@ -712,30 +713,46 @@
 
     function renderMapping(data) {
       analysis = data;
-      const { attributes, calcFields, locales } = data.options;
+      const { attributes, attributeGroups, calcFields, locales } = data.options;
 
       attrByCode = new Map(attributes.map(a => [a.code, a]));
+      // One optgroup per Akeneo attribute group, in Akeneo's order; attributes without a known group go last.
+      const groups = (attributeGroups || []).slice().sort((a, b) => a.sortOrder - b.sortOrder).map(g => ({ code: g.code, label: g.label, attrs: [] }));
+      const other = { label: 'Overig', attrs: [] };
+      const groupByCode = new Map(groups.map(g => [g.code, g]));
+      for (const a of attributes) (groupByCode.get(a.group) || other).attrs.push(a);
       sourceOptionsHtml =
         '<option value="">Niet invullen</option>' +
         '<optgroup label="Berekend (verpakking, herkomst)">' +
         calcFields.map(f => '<option value="calc:' + esc(f.code) + '">' + esc(f.label) + '</option>').join('') +
-        '</optgroup><optgroup label="Akeneo-attributen">' +
-        attributes.slice().sort((a, b) => a.label.localeCompare(b.label))
-          .map(a => '<option value="attr:' + esc(a.code) + '">' + esc(a.label) + ' (' + esc(a.code) + ')</option>').join('') +
-        '</optgroup>';
+        '</optgroup>' +
+        groups.concat(other).filter(g => g.attrs.length).map(g =>
+          '<optgroup label="' + esc(g.label) + '">' +
+          g.attrs.sort((a, b) => a.label.localeCompare(b.label))
+            .map(a => '<option value="attr:' + esc(a.code) + '">' + esc(a.label) + ' (' + esc(a.code) + ')</option>').join('') +
+          '</optgroup>').join('');
 
       mappingInfo.className = 'mapping-info' + (data.saved ? '' : ' new');
       mappingInfo.textContent = data.saved
-        ? 'Opgeslagen koppeling gevonden (laatst gewijzigd ' + new Date(data.savedAt).toLocaleString('nl-BE') + '). ' + data.rowCount + ' artikelregels in het bestand.'
+        ? 'Alle kolommen herkend uit eerdere bestanden. ' + data.rowCount + ' artikelregels in het bestand.'
         : 'Nieuwe template. Dit is een voorgestelde koppeling: controleer ze voordat u opslaat. Ze worden onthouden voor volgende keren. ' + data.rowCount + ' artikelregels in het bestand.';
 
-      skuSelect.replaceChildren(...data.columns.map(c => {
+      const skuOptions = data.columns.map(c => {
         const o = document.createElement('option');
         o.value = c.colNum;
         o.textContent = colLetter(c.colNum) + ': ' + c.header;
         o.selected = c.colNum === data.skuCol;
         return o;
-      }));
+      });
+      if (data.skuCol === null) {
+        // Not recognised from the headers: the client has to pick it.
+        const o = document.createElement('option');
+        o.value = '';
+        o.textContent = '— kies de kolom met het artikelnummer —';
+        o.selected = true;
+        skuOptions.unshift(o);
+      }
+      skuSelect.replaceChildren(...skuOptions);
 
       const localeOptions = ['<option value="">auto</option>'].concat(locales.map(l => '<option>' + esc(l) + '</option>')).join('');
       mappingBody.replaceChildren(...data.columns.map(c => {
@@ -744,7 +761,7 @@
         tr.dataset.col = c.colNum;
         tr.dataset.search = (colLetter(c.colNum) + ' ' + c.header + ' ' + (c.hint || '')).toLowerCase();
         tr.innerHTML =
-          '<td class="col-letter"></td><td class="col-header"></td><td class="col-meta"><div class="hint"></div><div class="example"></div></td>' +
+          '<td class="col-letter"></td><td class="col-header"></td><td class="col-meta"><div class="hint"></div></td><td class="col-example"></td>' +
           '<td class="col-source"><select class="source">' + sourceOptionsHtml + '</select></td>' +
           '<td><select class="locale">' + localeOptions + '</select></td>' +
           '<td class="col-yesno"><input type="checkbox"></td>';
@@ -753,7 +770,8 @@
         tr.querySelector('.hint').textContent = c.hint ? c.hint.replace(/\n/g, ' | ') : '';
         tr.querySelector('.hint').title = c.hint || '';
         const example = data.samples && data.samples[c.colNum];
-        tr.querySelector('.example').textContent = example ? 'Nu: ' + example : '';
+        tr.querySelector('.col-example').textContent = example || '';
+        tr.querySelector('.col-example').title = example || '';
         const source = tr.querySelector('select.source');
         const locale = tr.querySelector('select.locale');
         const yesno = tr.querySelector('input[type=checkbox]');
@@ -777,7 +795,7 @@
         return tr;
       }));
 
-      skuSelect.onchange = () => { analysis.skuCol = Number(skuSelect.value); [...mappingBody.rows].forEach(updateRow); };
+      skuSelect.onchange = () => { analysis.skuCol = skuSelect.value ? Number(skuSelect.value) : null; [...mappingBody.rows].forEach(updateRow); };
       mappingEl.classList.add('visible');
       card.classList.add('wide');
       enrichBtn.style.display = 'none';
@@ -877,6 +895,7 @@
     // Step 2: save the mapping and enrich the file with it.
     saveBtn.addEventListener('click', () => {
       if (!selectedFile || !analysis) return;
+      if (analysis.skuCol === null) return showError('Kies eerst bovenaan de kolom met het artikelnummer.', 'Koppeling niet compleet.');
       const { mapping, invalid } = readMapping();
       if (invalid) return showError(invalid + ' kolom(men) hebben een bron die niet meer in Akeneo bestaat (rood gemarkeerd). Kies een andere bron of "niet invullen".', 'Koppeling niet geldig.');
       hideStatus();
