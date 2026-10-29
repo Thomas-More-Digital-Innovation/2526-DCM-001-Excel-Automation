@@ -713,17 +713,24 @@
 
     function renderMapping(data) {
       analysis = data;
-      const { attributes, calcFields, locales } = data.options;
+      const { attributes, attributeGroups, calcFields, locales } = data.options;
 
       attrByCode = new Map(attributes.map(a => [a.code, a]));
+      // One optgroup per Akeneo attribute group, in Akeneo's order; attributes without a known group go last.
+      const groups = (attributeGroups || []).slice().sort((a, b) => a.sortOrder - b.sortOrder).map(g => ({ code: g.code, label: g.label, attrs: [] }));
+      const other = { label: 'Overig', attrs: [] };
+      const groupByCode = new Map(groups.map(g => [g.code, g]));
+      for (const a of attributes) (groupByCode.get(a.group) || other).attrs.push(a);
       sourceOptionsHtml =
         '<option value="">Niet invullen</option>' +
         '<optgroup label="Berekend (verpakking, herkomst)">' +
         calcFields.map(f => '<option value="calc:' + esc(f.code) + '">' + esc(f.label) + '</option>').join('') +
-        '</optgroup><optgroup label="Akeneo-attributen">' +
-        attributes.slice().sort((a, b) => a.label.localeCompare(b.label))
-          .map(a => '<option value="attr:' + esc(a.code) + '">' + esc(a.label) + ' (' + esc(a.code) + ')</option>').join('') +
-        '</optgroup>';
+        '</optgroup>' +
+        groups.concat(other).filter(g => g.attrs.length).map(g =>
+          '<optgroup label="' + esc(g.label) + '">' +
+          g.attrs.sort((a, b) => a.label.localeCompare(b.label))
+            .map(a => '<option value="attr:' + esc(a.code) + '">' + esc(a.label) + ' (' + esc(a.code) + ')</option>').join('') +
+          '</optgroup>').join('');
 
       mappingInfo.className = 'mapping-info' + (data.saved ? '' : ' new');
       mappingInfo.textContent = data.saved
