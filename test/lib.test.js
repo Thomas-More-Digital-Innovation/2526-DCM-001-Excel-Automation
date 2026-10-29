@@ -3,7 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
-const { loadWorkbook, extractHeadersAndRows, buildSlotMap, resolveValue, cleanMapping, readUpload, buildSuggestColumns, prepareForWrite, headerKeys, loadHeaderMappings, saveHeaderMappings } = require('../src/lib');
+const { loadWorkbook, extractHeadersAndRows, buildSlotMap, resolveValue, cleanMapping, readUpload, buildSuggestColumns, prepareForWrite, headerKeys, loadHeaderMappings, saveHeaderMappings, applyKnown } = require('../src/lib');
 const { buildWorkflow } = require('../scripts/build-workflow');
 
 const root = path.join(__dirname, '..');
@@ -128,6 +128,17 @@ test('header keys number repeated headers left to right', () => {
     { colNum: 4, header: 'MATNR', occurrence: 1 },
     { colNum: 9, header: 'EAN', occurrence: 2 },
   ]);
+});
+
+test('stored header mappings: saved SKU column wins, only never-seen headers are unknown', () => {
+  const layout = { skuColNum: 1, headerCols: [1, 2, 3, 4].map(colNum => ({ header: 'H' + colNum, colNum })) };
+  const r = applyKnown(layout, {
+    2: { entry: null, isSku: true },
+    3: { entry: { attr: 'title', locale: 'nl_BE' }, isSku: false },
+  });
+  assert.strictEqual(r.skuCol, 2);
+  assert.deepStrictEqual(r.mapping, { 1: null, 2: null, 3: { attr: 'title', locale: 'nl_BE' }, 4: null });
+  assert.deepStrictEqual(r.unknown.map(h => h.colNum), [1, 4]);
 });
 
 // Needs Postgres: node --env-file=.env --test   (skipped by plain `npm test`)

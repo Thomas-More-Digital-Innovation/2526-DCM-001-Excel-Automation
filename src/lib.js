@@ -11,7 +11,6 @@
 const ExcelJS = require('exceljs');
 const https = require('https');
 const http = require('http');
-const crypto = require('crypto');
 const { URL } = require('url');
 const { Client } = require('pg');
 
@@ -357,25 +356,11 @@ async function suggestMapping(env, headerCols, skuCol, attributes, locales) {
   return mapping;
 }
 
-// Same headers in the same order = same template.
-function headerFingerprint(headerCols) {
-  return crypto.createHash('sha256').update(JSON.stringify(headerCols.map(h => h.header))).digest('hex');
-}
-
 async function withDb(env, fn) {
   checkEnv(env, ['MAPPINGS_DB_URL']);
   const client = new Client({ connectionString: env.MAPPINGS_DB_URL });
   await client.connect();
   try {
-    await client.query(`CREATE TABLE IF NOT EXISTS column_mappings (
-      fingerprint TEXT PRIMARY KEY,
-      headers     JSONB NOT NULL,
-      sku_col     INTEGER,
-      mapping     JSONB NOT NULL,
-      file_name   TEXT,
-      created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-    )`);
     // One row per header text, shared by every template that uses it. No row = never seen
     // (ask OpenAI); a row with entry NULL = a person chose to leave that column empty.
     await client.query(`CREATE TABLE IF NOT EXISTS header_mappings (
@@ -390,22 +375,6 @@ async function withDb(env, fn) {
   } finally {
     await client.end();
   }
-}
-
-async function loadMapping(env, fingerprint) {
-  return withDb(env, async db => {
-    const { rows } = await db.query('SELECT sku_col, mapping, updated_at FROM column_mappings WHERE fingerprint = $1', [fingerprint]);
-    return rows[0] ? { skuCol: rows[0].sku_col, mapping: rows[0].mapping, updatedAt: rows[0].updated_at } : null;
-  });
-}
-
-async function saveMapping(env, fingerprint, headerCols, choice, fileName) {
-  await withDb(env, db => db.query(
-    `INSERT INTO column_mappings (fingerprint, headers, sku_col, mapping, file_name)
-     VALUES ($1, $2, $3, $4, $5)
-     ON CONFLICT (fingerprint) DO UPDATE
-       SET sku_col = EXCLUDED.sku_col, mapping = EXCLUDED.mapping, file_name = EXCLUDED.file_name, updated_at = now()`,
-    [fingerprint, JSON.stringify(headerCols.map(h => h.header)), choice.skuCol, JSON.stringify(choice.mapping), fileName || null]));
 }
 
 // Headers can repeat within a file, so each column is identified by its header text plus
@@ -445,6 +414,20 @@ async function saveHeaderMappings(env, headerCols, choice) {
       keys.map(k => choice.mapping[k.colNum] ? JSON.stringify(choice.mapping[k.colNum]) : null),
       keys.map(k => k.colNum === choice.skuCol),
     ]));
+}
+
+// Applies what earlier files decided: the stored SKU column (else the one found by its header)
+// and the stored entries. Columns never seen before come back in `unknown`, mapped to null.
+function applyKnown(layout, known) {
+  const stored = layout.headerCols.find(h => known[h.colNum] && known[h.colNum].isSku);
+  const skuCol = stored ? stored.colNum : layout.skuColNum;
+  const entries = {};
+  for (const col in known) entries[col] = known[col].entry;
+  return {
+    skuCol,
+    mapping: cleanMapping(entries, layout.headerCols, skuCol),
+    unknown: layout.headerCols.filter(h => !known[h.colNum] && h.colNum !== skuCol),
+  };
 }
 
 // ── Extract: find header row, hint row, SKU column and data rows ──────
@@ -610,48 +593,56 @@ async function loadWorkbook(buffer) {
 // Everything the portal needs to show the mapping screen.
 async function analyzeUpload(buffer, fileName, env) {
   const workbook = await loadWorkbook(buffer);
-  const layout = extractHeadersAndRows(workbook.worksheets[0]);
-  const fingerprint = headerFingerprint(layout.headerCols);
+  const worksheet = workbook.worksheets[0];
+  const layout = extractHeadersAndRows(worksheet);
   const token = await getAkeneoToken(env);
-  const [attributes, locales, saved] = await Promise.all([fetchAkeneoAttributes(env, token), fetchAkeneoLocales(env, token), loadMapping(env, fingerprint)]);
-  const skuCol = saved && saved.skuCol ? saved.skuCol : layout.skuColNum;
+  const [attributes, locales, known] = await Promise.all([fetchAkeneoAttributes(env, token), fetchAkeneoLocales(env, token), loadHeaderMappings(env, layout.headerCols)]);
+  const { skuCol, mapping, unknown } = applyKnown(layout, known);
+  // Only headers no earlier file has decided on go to OpenAI.
+  const source = {};
+  for (const col in known) source[col] = 'saved';
+  if (unknown.length) {
+    const suggested = await suggestMapping(env, unknown, skuCol, attributes, locales);
+    for (const { colNum } of unknown) { mapping[colNum] = suggested[colNum]; source[colNum] = 'ai'; }
+  }
+  const rows = skuCol !== layout.skuColNum ? collectRows(worksheet, layout, skuCol) : layout.rows;
   const samples = {};
-  const firstRow = layout.rows[0] && workbook.worksheets[0].getRow(layout.rows[0].rowNum);
+  const firstRow = rows[0] && worksheet.getRow(rows[0].rowNum);
   if (firstRow) layout.headerCols.forEach(h => { samples[h.colNum] = getCellText(firstRow.getCell(h.colNum).value); });
   return {
     fileName,
-    fingerprint,
     headerRowIndex: layout.headerRowIndex,
     dataStartRow: layout.dataStartRow,
-    rowCount: layout.rows.length,
+    rowCount: rows.length,
     columns: layout.headerCols,
-    saved: !!saved,
-    savedAt: saved ? saved.updatedAt : null,
+    saved: unknown.length === 0,
+    source,
     skuCol,
     samples,
-    mapping: saved ? cleanMapping(saved.mapping, layout.headerCols, skuCol) : await suggestMapping(env, layout.headerCols, skuCol, attributes, locales),
+    mapping,
     options: { attributes, locales, calcFields: Object.entries(CALC_FIELDS).map(([code, f]) => ({ code, label: f.label })) },
   };
 }
 
-// Fills the first worksheet. `choice` = { skuCol, mapping } from the portal (saved to the DB
-// first), or null to use the mapping already saved for this template.
-async function enrichWorkbook(workbook, choice, fileName, env, log) {
+// Fills the first worksheet. `choice` = { skuCol, mapping } from the portal (remembered per
+// header first), or null to use what earlier files decided for these headers.
+async function enrichWorkbook(workbook, choice, env, log) {
   log = log || (() => {});
   const worksheet = workbook.worksheets[0];
   const layout = extractHeadersAndRows(worksheet);
-  const fingerprint = headerFingerprint(layout.headerCols);
 
   const noSkuCol = 'No SKU column chosen — pick the article number column in the portal first.';
   if (choice) {
     const skuCol = layout.headerCols.some(h => h.colNum === Number(choice.skuCol)) ? Number(choice.skuCol) : layout.skuColNum;
     if (skuCol === null) throw new Error(noSkuCol);
     choice = { skuCol, mapping: cleanMapping(choice.mapping, layout.headerCols, skuCol) };
-    await saveMapping(env, fingerprint, layout.headerCols, choice, fileName);
+    await saveHeaderMappings(env, layout.headerCols, choice);
   } else {
-    choice = await loadMapping(env, fingerprint);
-    if (!choice) throw new Error('No saved column mapping for this template yet — open it in the portal and save a mapping first.');
-    if (!choice.skuCol) throw new Error(noSkuCol);
+    const known = await loadHeaderMappings(env, layout.headerCols);
+    if (Object.keys(known).length === 0) throw new Error('None of these headers have a saved mapping yet — open the file in the portal and save a mapping first.');
+    choice = applyKnown(layout, known);
+    if (choice.skuCol === null) throw new Error(noSkuCol);
+    if (choice.unknown.length) log('Not seen before, left empty: ' + choice.unknown.map(h => h.header).join(', '));
   }
 
   const rows = choice.skuCol !== layout.skuColNum ? collectRows(worksheet, layout, choice.skuCol) : layout.rows;
@@ -711,4 +702,4 @@ function prepareForWrite(workbook) {
 }
 
 // @cli-only
-module.exports = { loadWorkbook, extractHeadersAndRows, analyzeUpload, enrichWorkbook, readUpload, resolveValue, cleanMapping, headerFingerprint, buildSlotMap, buildSuggestColumns, prepareForWrite, headerKeys, loadHeaderMappings, saveHeaderMappings, CALC_FIELDS };
+module.exports = { loadWorkbook, extractHeadersAndRows, analyzeUpload, enrichWorkbook, readUpload, resolveValue, cleanMapping, buildSlotMap, buildSuggestColumns, prepareForWrite, headerKeys, loadHeaderMappings, saveHeaderMappings, applyKnown, CALC_FIELDS };
