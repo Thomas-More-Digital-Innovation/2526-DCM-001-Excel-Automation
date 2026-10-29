@@ -377,6 +377,28 @@
     }
     .mapping input:focus, .mapping select:focus { outline: 2px solid var(--green-bright); outline-offset: -1px; }
     .mapping select.invalid { border-color: #c62828; background: #fdecea; }
+
+    /* Searchable panel for the Akeneo-bron dropdowns (one, shared by all rows) */
+    .picker {
+      position: fixed;
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      box-shadow: var(--card-shadow);
+      font-size: 0.82rem;
+    }
+    .picker[hidden] { display: none; }
+    .picker input { font: inherit; margin: 6px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 4px; }
+    .picker input:focus { outline: 2px solid var(--green-bright); outline-offset: -1px; }
+    .picker-list { max-height: 300px; overflow-y: auto; }
+    .picker-heading { position: sticky; top: 0; background: var(--green-pale); color: var(--text-muted); font-weight: 600; font-size: 0.75rem; padding: 4px 10px; }
+    .picker-item { padding: 5px 10px 5px 16px; cursor: pointer; }
+    .picker-item.active { background: var(--green-light); }
+    .picker-item.selected { font-weight: 600; color: var(--green-dark); }
+    .picker-empty { padding: 10px; color: var(--text-muted); }
     .mapping-table-wrap {
       max-height: 60vh;
       overflow: auto;
@@ -857,6 +879,122 @@
     }
     mappingFilter.addEventListener('input', applyFilter);
     onlyMapped.addEventListener('change', applyFilter);
+
+    // ── Searchable Akeneo-bron picker ───────────────────────────────
+    // The row's <select> keeps the value (so updateRow/readMapping are unchanged); this panel
+    // only replaces its pop-up list with one that has a search box.
+
+    const picker = document.createElement('div');
+    picker.className = 'picker';
+    picker.hidden = true;
+    picker.innerHTML = '<input type="search" placeholder="Zoek attribuut…" aria-label="Zoek attribuut">' +
+      '<div class="picker-list" role="listbox"></div><div class="picker-empty" hidden>Geen resultaten</div>';
+    document.body.appendChild(picker);
+    const pickerInput = picker.querySelector('input');
+    const pickerList = picker.querySelector('.picker-list');
+    const pickerEmpty = picker.querySelector('.picker-empty');
+    let pickerSelect = null;
+
+    function pickerItem(option, groupLabel) {
+      const item = document.createElement('div');
+      item.className = 'picker-item' + (option.value === pickerSelect.value ? ' selected' : '');
+      item.setAttribute('role', 'option');
+      item.textContent = option.textContent;
+      item.dataset.value = option.value;
+      item.dataset.search = (option.textContent + ' ' + groupLabel).toLowerCase();
+      item.addEventListener('mousedown', e => e.preventDefault()); // keep focus in the search box
+      item.addEventListener('click', () => choosePicker(option.value));
+      return item;
+    }
+
+    function openPicker(select) {
+      pickerSelect = select;
+      pickerList.replaceChildren(...[...select.children].map(el => {
+        if (el.tagName !== 'OPTGROUP') return pickerItem(el, '');
+        const group = document.createElement('div');
+        const heading = document.createElement('div');
+        heading.className = 'picker-heading';
+        heading.textContent = el.label;
+        group.append(heading, ...[...el.children].map(o => pickerItem(o, el.label)));
+        return group;
+      }));
+      const r = select.getBoundingClientRect();
+      const width = Math.max(r.width, 320);
+      picker.style.width = width + 'px';
+      picker.style.left = Math.max(8, Math.min(r.left, innerWidth - width - 8)) + 'px';
+      // Open upwards when there is no room below.
+      picker.style.top = (r.bottom + 360 < innerHeight ? r.bottom + 2 : Math.max(8, r.top - 362)) + 'px';
+      picker.hidden = false;
+      pickerInput.value = '';
+      filterPicker();
+      const selected = pickerList.querySelector('.selected');
+      if (selected) setActive(selected);
+      pickerInput.focus();
+    }
+
+    function closePicker(refocus) {
+      if (picker.hidden) return;
+      picker.hidden = true;
+      if (refocus) pickerSelect.focus();
+      pickerSelect = null;
+    }
+
+    function choosePicker(value) {
+      pickerSelect.value = value;
+      pickerSelect.dispatchEvent(new Event('change'));
+      closePicker(true);
+    }
+
+    const visibleItems = () => [...pickerList.querySelectorAll('.picker-item')].filter(i => !i.hidden);
+
+    function setActive(item) {
+      pickerList.querySelectorAll('.active').forEach(i => i.classList.remove('active'));
+      if (item) { item.classList.add('active'); item.scrollIntoView({ block: 'nearest' }); }
+    }
+
+    function filterPicker() {
+      const q = pickerInput.value.trim().toLowerCase();
+      for (const item of pickerList.querySelectorAll('.picker-item')) item.hidden = !!q && !item.dataset.search.includes(q);
+      for (const group of pickerList.children) {
+        if (!group.classList.contains('picker-item')) group.hidden = ![...group.querySelectorAll('.picker-item')].some(i => !i.hidden);
+      }
+      const items = visibleItems();
+      pickerEmpty.hidden = items.length > 0;
+      setActive(items[0]);
+    }
+
+    pickerInput.addEventListener('input', filterPicker);
+    pickerInput.addEventListener('keydown', e => {
+      const items = visibleItems();
+      const i = items.indexOf(pickerList.querySelector('.active'));
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        setActive(items[Math.max(0, Math.min(items.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)))]);
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (items[i]) choosePicker(items[i].dataset.value);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        closePicker(true);
+      } else if (e.key === 'Tab') closePicker(true);
+    });
+
+    mappingBody.addEventListener('mousedown', e => {
+      if (!e.target.matches('select.source') || e.target.disabled) return;
+      e.preventDefault(); // no native pop-up list
+      e.target.focus();
+      openPicker(e.target);
+    });
+    mappingBody.addEventListener('keydown', e => {
+      if (!e.target.matches('select.source')) return;
+      if (e.key === 'Enter' || e.key === ' ' || e.key === 'F4' || (e.altKey && e.key === 'ArrowDown')) {
+        e.preventDefault();
+        openPicker(e.target);
+      }
+    });
+    document.addEventListener('mousedown', e => { if (!picker.contains(e.target) && e.target !== pickerSelect) closePicker(false); });
+    document.querySelector('.mapping-table-wrap').addEventListener('scroll', () => closePicker(false));
+    window.addEventListener('resize', () => closePicker(false));
 
     // ── Events ──────────────────────────────────────────────────────
 
