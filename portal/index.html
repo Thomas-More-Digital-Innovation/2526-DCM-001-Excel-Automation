@@ -424,7 +424,7 @@
     .mapping td.col-letter { color: var(--text-muted); font-variant-numeric: tabular-nums; width: 44px; }
     .mapping td.col-header { font-weight: 600; white-space: nowrap; }
     .mapping td.col-meta { color: var(--text-muted); max-width: 260px; }
-    .mapping td.col-meta div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mapping td.col-meta div { overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; }
     .mapping td.col-example { color: var(--text-muted); max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .mapping td.col-source select { width: 100%; min-width: 240px; max-width: 380px; }
     .mapping td.col-yesno { text-align: center; }

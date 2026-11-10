@@ -3,7 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
-const { loadWorkbook, extractHeadersAndRows, buildSlotMap, resolveValue, cleanMapping, readUpload, buildSuggestColumns, prepareForWrite, headerKeys, loadHeaderMappings, saveHeaderMappings, applyKnown, readLayout, applyWrites } = require('../src/lib');
+const { loadWorkbook, extractHeadersAndRows, buildSlotMap, resolveValue, cleanMapping, readUpload, buildSuggestColumns, prepareForWrite, headerKeys, loadHeaderMappings, saveHeaderMappings, applyKnown, readLayout, applyWrites, optionLabel } = require('../src/lib');
 const { buildWorkflow } = require('../scripts/build-workflow');
 
 const root = path.join(__dirname, '..');
@@ -94,6 +94,15 @@ test('mapping entries resolve to the right value', () => {
   assert.strictEqual(resolveValue({ calc: 'pack_2_ean' }, product), null);
   assert.strictEqual(resolveValue({ calc: 'min_order_qty' }, product), '12');
   assert.strictEqual(resolveValue({ calc: 'origin_from_category' }, product), 'DE');
+});
+
+test('select values: word codes become their name, number codes (supplier, tax class) stay', () => {
+  const labels = { vl: { de_DE: 'Flandern', nl_BE: 'Vlaanderen', fr_BE: 'Flandre' }, 907498: { nl_BE: 'KWIZDA AGRO GMBH (907498)' } };
+  assert.strictEqual(optionLabel(labels, '907498'), '907498');
+  assert.strictEqual(optionLabel(labels, 'vl'), 'Vlaanderen');
+  assert.strictEqual(optionLabel(labels, 'VL', 'fr_BE'), 'Flandre');
+  assert.strictEqual(optionLabel(labels, 'other'), 'other');
+  assert.strictEqual(optionLabel(labels, 12), 12);
 });
 
 test('portal mappings are cleaned: unknown columns, calc fields, junk and the SKU column are dropped', () => {

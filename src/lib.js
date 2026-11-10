@@ -183,6 +183,20 @@ function resolveValue(entry, values) {
   return v;
 }
 
+// ponytail: fixed language order for option names; make it per template if a client needs another language.
+const LABEL_LOCALES = ['nl_BE', 'nl_NL', 'en_US', 'en_GB'];
+
+// Akeneo stores a select value as an option code. Word codes ("vl", "dcm_naturapy") are Akeneo shorthand,
+// so the Excel gets the name ("Vloeibaar"); number codes ("907498" supplier, "21" tax class) are the real
+// identifiers a template expects, so they stay. `labels` = { optionCode (lowercase): { locale: name } }.
+function optionLabel(labels, value, locale) {
+  if (typeof value !== 'string' || /^\d+$/.test(value)) return value;
+  const names = labels[value.toLowerCase()];
+  if (!names) return value;
+  for (const l of [locale, ...LABEL_LOCALES]) if (l && names[l]) return names[l];
+  return Object.values(names).find(Boolean) || value;
+}
+
 // ── Akeneo ────────────────────────────────────────────────────────────
 
 async function getAkeneoToken(env) {
@@ -222,6 +236,22 @@ async function fetchAkeneoAttributes(env, token) {
 async function fetchAkeneoAttributeGroups(env, token) {
   const items = await fetchAllPages(env.AKENEO_BASE_URL + '/api/rest/v1/attribute-groups?limit=100', token, 'attribute groups');
   return items.map(g => ({ code: g.code, label: (g.labels && (g.labels.en_US || g.labels.en)) || g.code, sortOrder: g.sort_order || 0 }));
+}
+
+// Option names for the mapped select attributes only: { attrCode: { optionCode (lowercase): { locale: name } } }.
+async function fetchOptionLabels(env, token, mapping) {
+  const codes = [...new Set(Object.values(mapping).filter(e => e && e.attr && !e.yesno).map(e => e.attr))];
+  const labels = {};
+  await Promise.all(codes.map(async code => {
+    const url = env.AKENEO_BASE_URL + '/api/rest/v1/attributes/' + encodeURIComponent(code);
+    const res = await makeRequest(url, { headers: { Authorization: 'Bearer ' + token } });
+    if (!res.ok) return; // unknown attribute: its values are written as they are
+    const attr = await res.json();
+    if (attr.type !== 'pim_catalog_simpleselect' && attr.type !== 'pim_catalog_multiselect') return;
+    labels[code] = {};
+    for (const o of await fetchAllPages(url + '/options?limit=100', token, 'options of ' + code)) labels[code][o.code.toLowerCase()] = o.labels || {};
+  }));
+  return labels;
 }
 
 async function fetchAkeneoLocales(env, token) {
@@ -685,6 +715,10 @@ async function resolveChoice(env, layout, choice, buffer, log) {
     if (choice.unknown.length) log('Not seen before, left empty: ' + choice.unknown.map(h => h.header).join(', '));
   }
   const rows = await rowsFor(buffer, layout, choice.skuCol);
+  if (rows.length === 0) {
+    const sku = layout.headerCols.find(h => h.colNum === choice.skuCol);
+    throw new Error('No article numbers found in column "' + (sku ? sku.header : choice.skuCol) + '" — pick the column that holds the article numbers.');
+  }
   log('Header row ' + layout.headerRowIndex + ', data from row ' + layout.dataStartRow + ', ' + rows.length + ' rows');
   return { skuCol: choice.skuCol, mapping: choice.mapping, rows };
 }
@@ -694,6 +728,7 @@ async function resolveChoice(env, layout, choice, buffer, log) {
 async function fetchCellWrites(env, rows, headerCols, mapping, log) {
   log = log || (() => {});
   const token = await getAkeneoToken(env);
+  const optionLabels = await fetchOptionLabels(env, token, mapping);
   const skuMap = new Map();
   for (const row of rows) {
     if (!skuMap.has(row.sku)) skuMap.set(row.sku, []);
@@ -707,7 +742,9 @@ async function fetchCellWrites(env, rows, headerCols, mapping, log) {
     rowNumbers.forEach((rowNum, i) => {
       const values = variantList[i % variantList.length].values;
       for (const { colNum } of headerCols) {
-        const value = resolveValue(mapping[colNum], values);
+        const entry = mapping[colNum];
+        let value = resolveValue(entry, values);
+        if (entry && entry.attr && optionLabels[entry.attr]) value = optionLabel(optionLabels[entry.attr], value, entry.locale);
         if (value !== null && value !== undefined) writes.push({ rowNum, colNum, value });
       }
     });
@@ -765,4 +802,4 @@ function prepareForWrite(workbook) {
 }
 
 // @cli-only
-module.exports = { loadWorkbook, extractHeadersAndRows, readLayout, loadOptions, suggestUnknown, resolveChoice, fetchCellWrites, applyWrites, analyzeUpload, enrichWorkbook, readUpload, resolveValue, cleanMapping, buildSlotMap, buildSuggestColumns, prepareForWrite, headerKeys, loadHeaderMappings, saveHeaderMappings, applyKnown, CALC_FIELDS };
+module.exports = { loadWorkbook, extractHeadersAndRows, readLayout, loadOptions, suggestUnknown, resolveChoice, fetchCellWrites, applyWrites, analyzeUpload, enrichWorkbook, readUpload, resolveValue, cleanMapping, buildSlotMap, buildSuggestColumns, optionLabel, prepareForWrite, headerKeys, loadHeaderMappings, saveHeaderMappings, applyKnown, CALC_FIELDS };
