@@ -9,9 +9,15 @@ const parts = read('src/lib.js').split('// @cli-only');
 if (parts.length !== 2) throw new Error('src/lib.js must contain exactly one "// @cli-only" marker');
 const lib = parts[0];
 
+// Code node name in workflow.json → its body in src/n8n/.
 const NODE_SOURCES = {
-  'Analyze': 'src/n8n-analyze.js',
-  'Enrich & Write Excel': 'src/n8n-enrich.js',
+  'Analyze: Read Layout': 'src/n8n/read-layout.js',
+  'Options & Saved Mapping': 'src/n8n/load-options.js',
+  'Suggest Mapping (OpenAI)': 'src/n8n/suggest-mapping.js',
+  'Enrich: Read Layout': 'src/n8n/read-layout.js',
+  'Resolve Mapping': 'src/n8n/resolve-mapping.js',
+  'Fetch Products': 'src/n8n/fetch-products.js',
+  'Write Excel': 'src/n8n/write-excel.js',
 };
 
 function buildWorkflow() {

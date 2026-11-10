@@ -3,7 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
-const { loadWorkbook, extractHeadersAndRows, buildSlotMap, resolveValue, cleanMapping, readUpload, buildSuggestColumns, prepareForWrite, headerKeys, loadHeaderMappings, saveHeaderMappings, applyKnown } = require('../src/lib');
+const { loadWorkbook, extractHeadersAndRows, buildSlotMap, resolveValue, cleanMapping, readUpload, buildSuggestColumns, prepareForWrite, headerKeys, loadHeaderMappings, saveHeaderMappings, applyKnown, readLayout, applyWrites, optionLabel } = require('../src/lib');
 const { buildWorkflow } = require('../scripts/build-workflow');
 
 const root = path.join(__dirname, '..');
@@ -53,6 +53,14 @@ test('SKU column is found by its header, and left empty (null) when no header na
   assert.deepStrictEqual(unnamed.rows, []);
 });
 
+test('readLayout gives example values from the first article row; applyWrites fills cells', async () => {
+  const layout = await readLayout(sample);
+  assert.strictEqual(layout.samples[layout.skuColNum], layout.rows[0].sku);
+  const { rowNum } = layout.rows[0];
+  const workbook = await applyWrites(sample, [{ rowNum, colNum: 2, value: 'X-1' }]);
+  assert.strictEqual(workbook.worksheets[0].getRow(rowNum).getCell(2).value, 'X-1');
+});
+
 const units = [
   { unit_type: 'CE', unit_used: 'BOT', Aantal_CE: '1', EAN: '111' },
   { unit_type: 'X', unit_used: 'KAR', Aantal_CE: '12', EAN: '222' },
@@ -86,6 +94,15 @@ test('mapping entries resolve to the right value', () => {
   assert.strictEqual(resolveValue({ calc: 'pack_2_ean' }, product), null);
   assert.strictEqual(resolveValue({ calc: 'min_order_qty' }, product), '12');
   assert.strictEqual(resolveValue({ calc: 'origin_from_category' }, product), 'DE');
+});
+
+test('select values: word codes become their name, number codes (supplier, tax class) stay', () => {
+  const labels = { vl: { de_DE: 'Flandern', nl_BE: 'Vlaanderen', fr_BE: 'Flandre' }, 907498: { nl_BE: 'KWIZDA AGRO GMBH (907498)' } };
+  assert.strictEqual(optionLabel(labels, '907498'), '907498');
+  assert.strictEqual(optionLabel(labels, 'vl'), 'Vlaanderen');
+  assert.strictEqual(optionLabel(labels, 'VL', 'fr_BE'), 'Flandre');
+  assert.strictEqual(optionLabel(labels, 'other'), 'other');
+  assert.strictEqual(optionLabel(labels, 12), 12);
 });
 
 test('portal mappings are cleaned: unknown columns, calc fields, junk and the SKU column are dropped', () => {
