@@ -428,6 +428,8 @@
     .mapping td.col-example { color: var(--text-muted); max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .mapping td.col-source select { width: 100%; min-width: 240px; max-width: 380px; }
     .mapping td.col-yesno { text-align: center; }
+    .mapping .calc-note { margin-top: 4px; max-width: 380px; font-size: 0.75rem; color: var(--green-dark); }
+    .mapping .calc-note strong { background: var(--green-light); border-radius: 3px; padding: 0 4px; }
 
     .mapping-empty { padding: 18px; text-align: center; font-size: 0.85rem; color: var(--text-muted); }
 
@@ -616,6 +618,7 @@
     let analysis = null;            // response of /webhook/excel-analyze
     let sourceOptionsHtml = '';     // <option>s shared by every Akeneo-bron dropdown
     let attrByCode = new Map();
+    let calcByCode = new Map();
 
     function formatBytes(bytes) {
       if (bytes < 1024) return bytes + ' B';
@@ -738,6 +741,7 @@
       const { attributes, attributeGroups, calcFields, locales } = data.options;
 
       attrByCode = new Map(attributes.map(a => [a.code, a]));
+      calcByCode = new Map(calcFields.map(f => [f.code, f]));
       // One optgroup per Akeneo attribute group, in Akeneo's order; attributes without a known group go last.
       const groups = (attributeGroups || []).slice().sort((a, b) => a.sortOrder - b.sortOrder).map(g => ({ code: g.code, label: g.label, attrs: [] }));
       const other = { label: 'Overig', attrs: [] };
@@ -784,7 +788,7 @@
         tr.dataset.search = (colLetter(c.colNum) + ' ' + c.header + ' ' + (c.hint || '')).toLowerCase();
         tr.innerHTML =
           '<td class="col-letter"></td><td class="col-header"></td><td class="col-meta"><div class="hint"></div></td><td class="col-example"></td>' +
-          '<td class="col-source"><select class="source">' + sourceOptionsHtml + '</select></td>' +
+          '<td class="col-source"><select class="source">' + sourceOptionsHtml + '</select><div class="calc-note" hidden></div></td>' +
           '<td><select class="locale">' + localeOptions + '</select></td>' +
           '<td class="col-yesno"><input type="checkbox"></td>';
         tr.querySelector('.col-letter').textContent = colLetter(c.colNum);
@@ -839,6 +843,14 @@
       const entry = invalid ? null : keyToEntry(source.value);
       const attr = entry && entry.attr && attrByCode.get(entry.attr);
       source.classList.toggle('invalid', invalid);
+      // Calculated columns say so, and how, so a person can pick another source when it's wrong.
+      const calc = entry && entry.calc && calcByCode.get(entry.calc);
+      const note = tr.querySelector('.calc-note');
+      note.hidden = !calc;
+      if (calc) {
+        note.innerHTML = '<strong>Automatisch berekend</strong> ';
+        note.append((calc.help || '') + ' Klopt het niet? Kies hierboven een andere bron of “Niet invullen”.');
+      }
       locale.disabled = !(attr && attr.localizable);
       yesno.disabled = !attr;
       tr.classList.toggle('sku-row', isSku);

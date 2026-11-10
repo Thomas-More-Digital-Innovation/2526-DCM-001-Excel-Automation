@@ -151,14 +151,17 @@ function buildSlotMap(productValues) {
 const CALC_FIELDS = {
   base_unit: {
     label: 'Packing: base unit code (CE)',
+    help: 'De verpakkingseenheid van type CE in Akeneo (units_by_type).',
     get: v => unitField(buildSlotMap(v).base, 'unit_used'),
   },
   min_order_qty: {
     label: 'Packing: min. order qty (outer carton, else pallet)',
+    help: 'Aantal stuks in de omdoos; als er geen omdoos is, het aantal op de pallet.',
     get: v => { const m = buildSlotMap(v); const c = unitField(m[3], 'Aantal_CE'); return c !== null ? c : unitField(m[4], 'Aantal_CE'); },
   },
   origin_from_category: {
     label: 'Country of origin from category (Birchmeier → DE, else BE)',
+    help: 'Vaste regel, niet uit Akeneo: product in een Birchmeier-categorie wordt DE, al de rest BE.',
     get: v => (v.__categories || []).some(c => /birchmeier|berchemeier/i.test(String(c))) ? 'DE' : 'BE',
   },
 };
@@ -168,6 +171,7 @@ for (const [slot, slotName] of Object.entries(PACK_SLOTS)) {
   for (const [key, [field, fieldName]] of Object.entries(PACK_FIELDS)) {
     CALC_FIELDS['pack_' + slot + '_' + key] = {
       label: 'Packing ' + slot + ' (' + slotName + '): ' + fieldName,
+      help: 'De verpakkingen uit Akeneo worden van groot naar klein verdeeld over pallet (4), omdoos (3) en binnendoos (2).',
       get: v => unitField(buildSlotMap(v)[slot], field),
     };
   }
@@ -677,7 +681,7 @@ async function loadOptions(env, layout, buffer) {
     samples: layout.samples,
     mapping,
     unknownCols: unknown.map(h => h.colNum),
-    options: { attributes, attributeGroups, locales, calcFields: Object.entries(CALC_FIELDS).map(([code, f]) => ({ code, label: f.label })) },
+    options: { attributes, attributeGroups, locales, calcFields: Object.entries(CALC_FIELDS).map(([code, f]) => ({ code, label: f.label, help: f.help })) },
   };
 }
 
