@@ -5,8 +5,7 @@ const upload = readUpload(item);
 const body = (item.json && item.json.body) || {};
 const choice = body.mapping ? JSON.parse(body.mapping) : null;
 
-const workbook = await loadWorkbook(upload.buffer);
-await enrichWorkbook(workbook, choice, $env);
+const workbook = await enrichWorkbook(upload.buffer, choice, $env);
 
 const base64Data = Buffer.from(await workbook.xlsx.writeBuffer()).toString('base64');
 const fileName = upload.fileName;

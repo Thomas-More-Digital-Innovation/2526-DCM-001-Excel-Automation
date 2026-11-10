@@ -3,7 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
-const { loadWorkbook, extractHeadersAndRows, buildSlotMap, resolveValue, cleanMapping, readUpload, buildSuggestColumns, prepareForWrite, headerKeys, loadHeaderMappings, saveHeaderMappings, applyKnown } = require('../src/lib');
+const { loadWorkbook, extractHeadersAndRows, buildSlotMap, resolveValue, cleanMapping, readUpload, buildSuggestColumns, prepareForWrite, headerKeys, loadHeaderMappings, saveHeaderMappings, applyKnown, readLayout, applyWrites } = require('../src/lib');
 const { buildWorkflow } = require('../scripts/build-workflow');
 
 const root = path.join(__dirname, '..');
@@ -51,6 +51,14 @@ test('SKU column is found by its header, and left empty (null) when no header na
   const unnamed = extractHeadersAndRows(build(['Code', 'Kleur', 'Gewicht', 'Merk', 'EAN']));
   assert.strictEqual(unnamed.skuColNum, null);
   assert.deepStrictEqual(unnamed.rows, []);
+});
+
+test('readLayout gives example values from the first article row; applyWrites fills cells', async () => {
+  const layout = await readLayout(sample);
+  assert.strictEqual(layout.samples[layout.skuColNum], layout.rows[0].sku);
+  const { rowNum } = layout.rows[0];
+  const workbook = await applyWrites(sample, [{ rowNum, colNum: 2, value: 'X-1' }]);
+  assert.strictEqual(workbook.worksheets[0].getRow(rowNum).getCell(2).value, 'X-1');
 });
 
 const units = [

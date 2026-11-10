@@ -596,49 +596,81 @@ async function loadWorkbook(buffer) {
   return workbook;
 }
 
-// Everything the portal needs to show the mapping screen.
-async function analyzeUpload(buffer, fileName, env) {
-  const workbook = await loadWorkbook(buffer);
-  const worksheet = workbook.worksheets[0];
+// ── Steps: each one is an n8n node; analyzeUpload / enrichWorkbook chain them for the CLI ──
+
+// Values of the first article row, shown in the portal as examples (never sent to OpenAI).
+function readSamples(worksheet, layout) {
+  for (let r = layout.dataStartRow; r <= worksheet.rowCount; r++) {
+    const row = worksheet.getRow(r);
+    const firstCells = [];
+    for (let c = 1; c <= Math.min(layout.maxCols, 5); c++) { const t = getCellText(row.getCell(c).value); if (t) firstCells.push(t); }
+    if (rowIsSkip(firstCells)) continue;
+    const samples = {};
+    for (const { colNum } of layout.headerCols) { const t = getCellText(row.getCell(colNum).value); if (t !== null) samples[colNum] = t; }
+    if (Object.keys(samples).length) return samples;
+  }
+  return {};
+}
+
+// Step 1 (both flows): headers, hints, SKU column, data rows and example values. Plain JSON.
+async function readLayout(buffer) {
+  const worksheet = (await loadWorkbook(buffer)).worksheets[0];
   const layout = extractHeadersAndRows(worksheet);
+  layout.samples = readSamples(worksheet, layout);
+  return layout;
+}
+
+// The data rows for a SKU column; the file is only read again when it is not the one found from the headers.
+async function rowsFor(buffer, layout, skuCol) {
+  if (skuCol === layout.skuColNum) return layout.rows;
+  return collectRows((await loadWorkbook(buffer)).worksheets[0], layout, skuCol);
+}
+
+// Analyze step 2: Akeneo options plus what earlier files decided for these headers.
+// Headers never seen before are listed in `unknownCols` for suggestUnknown.
+async function loadOptions(env, layout, buffer) {
   const token = await getAkeneoToken(env);
   const [attributes, attributeGroups, locales, known] = await Promise.all([
     fetchAkeneoAttributes(env, token), fetchAkeneoAttributeGroups(env, token), fetchAkeneoLocales(env, token), loadHeaderMappings(env, layout.headerCols),
   ]);
   const { skuCol, mapping, unknown } = applyKnown(layout, known);
-  // Only headers no earlier file has decided on go to OpenAI.
   const source = {};
   for (const col in known) source[col] = 'saved';
-  if (unknown.length) {
-    const suggested = await suggestMapping(env, unknown, skuCol, attributes, locales);
-    for (const { colNum } of unknown) { mapping[colNum] = suggested[colNum]; source[colNum] = 'ai'; }
-  }
-  const rows = skuCol !== layout.skuColNum ? collectRows(worksheet, layout, skuCol) : layout.rows;
-  const samples = {};
-  const firstRow = rows[0] && worksheet.getRow(rows[0].rowNum);
-  if (firstRow) layout.headerCols.forEach(h => { samples[h.colNum] = getCellText(firstRow.getCell(h.colNum).value); });
   return {
-    fileName,
     headerRowIndex: layout.headerRowIndex,
     dataStartRow: layout.dataStartRow,
-    rowCount: rows.length,
+    rowCount: (await rowsFor(buffer, layout, skuCol)).length,
     columns: layout.headerCols,
     saved: unknown.length === 0,
     source,
     skuCol,
-    samples,
+    samples: layout.samples,
     mapping,
+    unknownCols: unknown.map(h => h.colNum),
     options: { attributes, attributeGroups, locales, calcFields: Object.entries(CALC_FIELDS).map(([code, f]) => ({ code, label: f.label })) },
   };
 }
 
-// Fills the first worksheet. `choice` = { skuCol, mapping } from the portal (remembered per
-// header first), or null to use what earlier files decided for these headers.
-async function enrichWorkbook(workbook, choice, env, log) {
-  log = log || (() => {});
-  const worksheet = workbook.worksheets[0];
-  const layout = extractHeadersAndRows(worksheet);
+// Analyze step 3: OpenAI suggests a mapping for the unknown headers only.
+async function suggestUnknown(env, analysis) {
+  const unknown = analysis.columns.filter(h => analysis.unknownCols.includes(h.colNum));
+  const { attributes, locales } = analysis.options;
+  const suggested = await suggestMapping(env, unknown, analysis.skuCol, attributes, locales);
+  for (const { colNum } of unknown) { analysis.mapping[colNum] = suggested[colNum]; analysis.source[colNum] = 'ai'; }
+  return analysis;
+}
 
+// Everything the portal needs to show the mapping screen.
+async function analyzeUpload(buffer, env) {
+  const layout = await readLayout(buffer);
+  const analysis = await loadOptions(env, layout, buffer);
+  return analysis.unknownCols.length ? suggestUnknown(env, analysis) : analysis;
+}
+
+// Enrich step 2: `choice` = { skuCol, mapping } from the portal (remembered per header first),
+// or null to use what earlier files decided for these headers. Returns { skuCol, mapping, rows }.
+async function resolveChoice(env, layout, choice, buffer, log) {
+  log = log || (() => {});
   const noSkuCol = 'No SKU column chosen — pick the article number column in the portal first.';
   if (choice) {
     const skuCol = layout.headerCols.some(h => h.colNum === Number(choice.skuCol)) ? Number(choice.skuCol) : layout.skuColNum;
@@ -652,29 +684,52 @@ async function enrichWorkbook(workbook, choice, env, log) {
     if (choice.skuCol === null) throw new Error(noSkuCol);
     if (choice.unknown.length) log('Not seen before, left empty: ' + choice.unknown.map(h => h.header).join(', '));
   }
-
-  const rows = choice.skuCol !== layout.skuColNum ? collectRows(worksheet, layout, choice.skuCol) : layout.rows;
+  const rows = await rowsFor(buffer, layout, choice.skuCol);
   log('Header row ' + layout.headerRowIndex + ', data from row ' + layout.dataStartRow + ', ' + rows.length + ' rows');
+  return { skuCol: choice.skuCol, mapping: choice.mapping, rows };
+}
 
+// Enrich step 3: looks up every SKU in Akeneo and returns only the cell values to write,
+// [{ rowNum, colNum, value }], so full products never end up in n8n's execution data.
+async function fetchCellWrites(env, rows, headerCols, mapping, log) {
+  log = log || (() => {});
   const token = await getAkeneoToken(env);
   const skuMap = new Map();
   for (const row of rows) {
     if (!skuMap.has(row.sku)) skuMap.set(row.sku, []);
     skuMap.get(row.sku).push(row.rowNum);
   }
+  const writes = [];
   for (const [sku, rowNumbers] of skuMap) {
     const variantList = await fetchProductData(env, sku, token);
     log(sku + ': ' + variantList.length + ' variant(s)');
     if (variantList.length === 0) continue;
     rowNumbers.forEach((rowNum, i) => {
       const values = variantList[i % variantList.length].values;
-      for (const { colNum } of layout.headerCols) {
-        const value = resolveValue(choice.mapping[colNum], values);
-        if (value !== null && value !== undefined) worksheet.getRow(rowNum).getCell(colNum).value = value;
+      for (const { colNum } of headerCols) {
+        const value = resolveValue(mapping[colNum], values);
+        if (value !== null && value !== undefined) writes.push({ rowNum, colNum, value });
       }
     });
   }
+  return writes;
+}
+
+// Enrich step 4: writes the values into the first worksheet and returns the workbook, ready to save.
+async function applyWrites(buffer, writes) {
+  const workbook = await loadWorkbook(buffer);
+  const worksheet = workbook.worksheets[0];
+  for (const { rowNum, colNum, value } of writes) worksheet.getRow(rowNum).getCell(colNum).value = value;
   prepareForWrite(workbook);
+  return workbook;
+}
+
+// The whole enrich flow; returns the filled workbook.
+async function enrichWorkbook(buffer, choice, env, log) {
+  const layout = await readLayout(buffer);
+  const { mapping, rows } = await resolveChoice(env, layout, choice, buffer, log);
+  const writes = await fetchCellWrites(env, rows, layout.headerCols, mapping, log);
+  return applyWrites(buffer, writes);
 }
 
 // Conditional-format rule types ExcelJS can write (cf-rule-xform render()). Any other type, e.g.
@@ -710,4 +765,4 @@ function prepareForWrite(workbook) {
 }
 
 // @cli-only
-module.exports = { loadWorkbook, extractHeadersAndRows, analyzeUpload, enrichWorkbook, readUpload, resolveValue, cleanMapping, buildSlotMap, buildSuggestColumns, prepareForWrite, headerKeys, loadHeaderMappings, saveHeaderMappings, applyKnown, CALC_FIELDS };
+module.exports = { loadWorkbook, extractHeadersAndRows, readLayout, loadOptions, suggestUnknown, resolveChoice, fetchCellWrites, applyWrites, analyzeUpload, enrichWorkbook, readUpload, resolveValue, cleanMapping, buildSlotMap, buildSuggestColumns, prepareForWrite, headerKeys, loadHeaderMappings, saveHeaderMappings, applyKnown, CALC_FIELDS };
