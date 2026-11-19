@@ -1,7 +1,6 @@
 # DCM Excel Portal
 
 > **Proof of concept.** Tested with one supplier template (`Docs/InitialFile.xlsx`) and a small set of products.
-> Not everything may work as expected. There is no login, no HTTPS and no backup: see the limitations in the IT guide.
 
 Fills supplier Excel templates with product data from Akeneo. The user uploads a template in the portal, checks which
 Akeneo field fills each column (OpenAI suggests one for new headers; it never gets product data), and downloads the
