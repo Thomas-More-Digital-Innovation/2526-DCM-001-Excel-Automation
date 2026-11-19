@@ -4,7 +4,7 @@ services:
     container_name: n8n
     restart: unless-stopped
     ports:
-      - "5678:5678"
+      - "127.0.0.1:5678:5678"
     environment:
       - N8N_USER_FOLDER=/home/node/.n8n
       - N8N_USER_MANAGEMENT_JWT_SECRET=${N8N_JWT_SECRET}
@@ -22,8 +22,11 @@ services:
       - MAPPINGS_DB_URL=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
     volumes:
       - n8n_data:/home/node/.n8n
+      - ./workflow.json:/workflow.json:ro
     user: root
-    entrypoint: /bin/sh -c "npm install -g exceljs pg && n8n start"
+    # Versions match package-lock.json. The repo's workflow.json is imported and published on every start,
+    # so edits made in the n8n editor are overwritten: change src/ and run `npm run build` instead.
+    entrypoint: /bin/sh -c "npm install -g exceljs@4.4.0 pg@8.23.1 && n8n import:workflow --input=/workflow.json && n8n publish:workflow --id=akeneo-excel-enrichment-workflow && n8n start"
     depends_on:
       - postgres
 
